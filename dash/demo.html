@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart helpers</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600&family=Raleway:wght@600;700&display=swap">
+<link rel="stylesheet" href="dash.css">
+</head>
+<body>
+<div class="bar" role="banner"><strong>Chart helpers</strong><span class="copied">Every helper in charts.js, drawn from the mock data in data.js</span><span class="spacer"></span><a href="index.html" style="color:#fff">Open the catalog</a></div>
+<main>
+  <div class="pagehead"><h1>Chart helpers</h1><p>One card per helper. Hover the marks for tooltips.</p><span id="count" class="count"></span></div>
+  <div id="cards" class="cards"></div>
+</main>
+<script src="data.js"></script>
+<script src="charts.js"></script>
+<script>
+(function () {
+  'use strict';
+  const box = document.getElementById('cards');
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  let n = 0;
+  function card(name, what, build, wide) {
+    const c = el('article', 'card' + (wide ? ' wide' : '')), head = el('header');
+    head.appendChild(el('span', 'cid', name)); head.appendChild(el('h2', null, what)); c.appendChild(head);
+    const body = el('div', 'body'); c.appendChild(body); box.appendChild(c);
+    try { const out = build(body); if (out) body.appendChild(out); } catch (e) { body.appendChild(C.note('Failed: ' + e.message, { tone: 'bad' })); console.error(name, e); }
+    n++;
+  }
+  const T = D.today, ME = D.me, active = D.wos.filter(D.active), open = D.wos.filter(D.open);
+  const delivered = D.wos.filter((w) => !w.rev && D.deliveredAt(w) && D.st(w).name !== 'Cancelled');
+  const dueChip = (w) => { if (!w.due) return C.chip('No due date', 'warn'); const d = D.between(T, w.due); return d < 0 ? C.chip(-d + ' d late', 'bad') : d <= 7 ? C.chip(d ? 'in ' + d + ' d' : 'today', 'warn') : null; };
+
+  card('C.tile, C.tiles', 'Number tiles with a delta and a trend', () => {
+    const weeks = D.weeks(12), activeAt = weeks.map((wk) => D.wos.filter((w) => D.activeAt(w, wk.end > T ? T : wk.end)).length);
+    const q = D.quarters(2, false), del = (p) => delivered.filter((w) => D.inRange(D.deliveredAt(w), p));
+    const ctNow = D.median(del(q[1]).map(D.cycleTime)), ctPrev = D.median(del(q[0]).map(D.cycleTime));
+    return C.tiles([
+      { label: 'Active jobs', value: active.length, spark: activeAt, sub: 'Last 12 weeks' },
+      { label: 'Overdue', value: D.wos.filter(D.overdue).length, status: 'bad', sub: 'Active and past the client due date' },
+      { label: 'Stuck 14 days or more', value: D.wos.filter(D.stuck).length, status: 'warn' },
+      { label: 'Median Cycle Time, ' + q[1].label, value: ctNow + ' d', delta: { text: (ctNow - ctPrev >= 0 ? '+' : '') + (ctNow - ctPrev) + ' d against ' + q[0].label, tone: ctNow > ctPrev ? 'bad' : 'good' } },
+    ]);
+  });
+
+  card('C.list', 'Short list: your move (holder dots, chips, and N more)', () => C.list({
+    max: 6,
+    rows: D.wos.filter((w) => D.open(w) && (w.eng === ME || w.qc === ME)).sort((a, b) => (a.pri || 999) - (b.pri || 999)).map((w) => ({ title: D.label(w), text: w.cust, sub: D.st(w).name + ', ' + D.daysIn(w) + ' d in status', holder: D.st(w).holder, chips: [dueChip(w)].filter(Boolean), value: w.due ? D.fmt(w.due) : '' })),
+  }));
+
+  card('C.list (grouped)', 'Short list grouped by holder: stuck and waiting jobs', () => C.list({
+    max: 8,
+    rows: active.filter((w) => D.daysIn(w) >= 7).sort((a, b) => D.HOLDERS.indexOf(D.st(a).holder) - D.HOLDERS.indexOf(D.st(b).holder) || D.daysIn(b) - D.daysIn(a)).map((w) => ({ group: D.st(w).holder, title: D.label(w), text: D.st(w).name, holder: D.st(w).holder, value: D.daysIn(w) + ' d', chips: [C.chip(D.daysIn(w) >= 14 ? 'Stuck' : '7+ days', D.daysIn(w) >= 14 ? 'bad' : 'warn')] })),
+  }));
+
+  card('C.table', 'Sortable table with pills, chips and greyed rows', () => C.table({
+    max: 8, sort: { key: 'days', dir: -1 },
+    columns: [
+      { key: 'id', label: 'WO', value: (w) => w.key, render: (w) => D.label(w) },
+      { key: 'cust', label: 'Customer' },
+      { key: 'status', label: 'Status', value: (w) => D.st(w).name, render: (w) => C.pill(D.st(w).name, D.st(w).holder) },
+      { key: 'days', label: 'In status', num: true, value: (w) => D.daysIn(w), fmt: (v) => v + ' d' },
+      { key: 'due', label: 'Due', value: (w) => w.due, render: (w) => [w.due ? D.fmt(w.due) : '', dueChip(w)].filter(Boolean) },
+    ],
+    rows: open.filter((w) => D.st(w).stage !== 'D'), grey: (w) => !!D.holdNow(w),
+  }));
+
+  card('C.bar', 'Horizontal bars with a marker: Human Time on my active jobs against the type median', () => {
+    const med = {}; D.types.forEach((t) => (med[t] = D.median(delivered.filter((w) => w.type === t && D.hasHT(w)).map(D.humanTime))));
+    return C.bar({ unit: ' h', markerLabel: 'Median for the type', seriesName: 'logged so far', data: D.wos.filter((w) => D.active(w) && w.eng === ME).map((w) => ({ label: D.label(w) + ' ' + w.type, value: D.humanTime(w), marker: med[w.type] })) });
+  });
+
+  card('C.bar (vertical)', 'Vertical bars with a target line: jobs delivered per month', () => {
+    const ms = D.months(12);
+    return C.bar({ horizontal: false, target: { value: 12, label: 'Target 12 a month' }, seriesName: 'jobs delivered', data: ms.map((m) => ({ label: m.label, value: delivered.filter((w) => D.inRange(D.deliveredAt(w), m)).length })) });
+  });
+
+  card('C.stackedBar', 'Stacked bar: active jobs per engineer, split by holder', () => {
+    const engs = D.engineers.concat(D.reviewers);
+    return C.stackedBar({ horizontal: true, categories: engs, series: D.HOLDERS.slice(0, 4).map((hd) => ({ name: hd, values: engs.map((e) => active.filter((w) => w.eng === e && D.st(w).holder === hd).length) })) });
+  });
+
+  card('C.stackedBar (100%)', '100% stacked bar: share of Cycle Time days by holder, per type', () => {
+    const types = D.types.filter((t) => t !== 'CM');
+    const sums = types.map((t) => { const o = { Urban: 0, QC: 0, Customer: 0, Field: 0 }; delivered.filter((w) => w.type === t).forEach((w) => { const hd = D.holderDays(w); for (const k in o) o[k] += hd[k]; }); return o; });
+    return C.stackedBar({ horizontal: true, percent: true, inside: true, unit: ' d', categories: types, series: ['Urban', 'QC', 'Customer', 'Field'].map((hd) => ({ name: hd, values: sums.map((x) => x[hd]) })) });
+  });
+
+  card('C.pairedBar', 'Paired bars: WOs created against jobs delivered per week', () => {
+    const wk = D.weeks(12);
+    return C.pairedBar({ categories: wk.map((w) => w.label), series: [{ name: 'Created', color: C.colors.cat[0], values: wk.map((p) => D.wos.filter((w) => !w.rev && D.inRange(w.created, p)).length) }, { name: 'Delivered', color: C.colors.cat[1], values: wk.map((p) => delivered.filter((w) => D.inRange(D.deliveredAt(w), p)).length) }] });
+  });
+
+  card('C.line', 'Lines with a target and greyed points: median Cycle Time by month, three types', () => {
+    const ms = D.months(12), types = ['NMP', 'AMB', 'SIG'];
+    const jobs = (t, m) => delivered.filter((w) => w.type === t && D.inRange(D.deliveredAt(w), m));
+    return C.line({ x: ms.map((m) => m.label), unit: ' d', target: { value: 60, label: 'Target 60 d' }, greyLabel: 'Fewer than 3 jobs', series: types.map((t) => ({ name: t, values: ms.map((m) => D.median(jobs(t, m).map(D.cycleTime))), grey: ms.map((m) => jobs(t, m).length < 3) })) });
+  });
+
+  card('C.stackedArea', 'Stacked area: Human Time per month by WO type and General', () => {
+    const ms = D.months(8, false).filter((m) => m.start >= D.entriesStart), ht = D.entries.filter(D.isHT);
+    const typeOf = (e) => (e.wo ? D.byKey(e.wo).type : 'General');
+    const by = D.groupBy(ht, (e) => D.monthKey(e.date) + '|' + typeOf(e));
+    const val = (m, k) => D.sum((by[m.key + '|' + k] || []).map((e) => e.hours));
+    return C.stackedArea({ x: ms.map((m) => m.label), unit: ' h', series: D.types.map((t) => ({ name: t, values: ms.map((m) => val(m, t)) })).concat([{ name: 'General', color: C.colors.other, values: ms.map((m) => val(m, 'General')) }]) });
+  });
+
+  card('C.boxPlot', 'Box plot per type: Cycle Time of delivered jobs, last 12 months', () => C.boxPlot({ unit: ' d', p80: true, groups: D.types.map((t) => ({ label: t, values: delivered.filter((w) => w.type === t && D.deliveredAt(w) >= D.addDays(T, -365)).map(D.cycleTime) })) }));
+
+  card('C.histogram', 'Histogram with buckets: days since request for every active job', () => C.histogram({ buckets: [[0, 14], [15, 30], [31, 60], [61, 90], [91, Infinity]], labels: ['0 to 14', '15 to 30', '31 to 60', '61 to 90', '90+'], values: active.map((w) => D.between(w.created, T)), seriesName: 'active jobs', xLabel: 'Days since request' }));
+
+  card('C.histogram (auto bins)', 'Histogram with automatic bins: actual minus planned deploy date', () => C.histogram({ binWidth: 1, values: D.wos.filter((w) => w.deploy && w.planned && w.type !== 'SIG').map((w) => D.between(w.planned, w.deploy)), seriesName: 'jobs', xLabel: 'Days late (negative is early)' }));
+
+  card('C.heatmap', 'Sequential heatmap with counts: jobs by customer and WO type', () => {
+    const custs = D.customers.map((c) => c.name);
+    const vals = custs.map((c) => D.types.map((t) => D.wos.filter((w) => !w.rev && w.cust === c && w.type === t).length || null));
+    return C.heatmap({ rows: custs, cols: D.types, values: vals, fmt: (v) => String(v), scaleLabel: 'Jobs', valueLabel: 'jobs' });
+  }, false);
+
+  card('C.heatmap (diverging)', 'Diverging heatmap: hours logged against available hours, person by week', () => {
+    const wk = D.weeks(8, false), ppl = D.engineers.concat(D.reviewers);
+    const hrs = ppl.map((p) => wk.map((w) => D.sum(D.entries.filter((e) => e.person === p && D.isHT(e) && D.inRange(e.date, w)).map((e) => e.hours))));
+    const avail = ppl.map((p) => wk.map((w) => D.available(p, w.start)));
+    return C.heatmap({ rows: ppl, cols: wk.map((w) => w.label), values: hrs, colorValues: hrs.map((r, i) => r.map((v, j) => v - avail[i][j])), scale: 'div', mid: 0, domain: [-16, 16], fmt: (v) => D.num(v, 0), colorFmt: (v) => (v > 0 ? '+' : '') + D.num(v, 0) + ' h', colorLabel: 'against available', lowLabel: 'Under', highLabel: 'Over', midLabel: 'on available hours', valueLabel: 'hours' });
+  }, true);
+
+  card('C.scatter', 'Scatter: Human Time against Cycle Time per delivered job (three types)', () => {
+    const types = ['NMP', 'AMB', 'SIG'];
+    return C.scatter({ series: types.map((t) => ({ name: t, color: C.colors.type[t] })), xName: 'Cycle Time', yName: 'Human Time', xUnit: ' d', yUnit: ' h', xLabel: 'Cycle Time, days', yLabel: 'Human Time, hours', points: delivered.filter((w) => D.hasHT(w) && types.includes(w.type)).map((w) => ({ x: D.cycleTime(w), y: D.humanTime(w), series: w.type, label: D.label(w) + ', ' + w.cust })) });
+  });
+
+  card('C.gantt', 'Gantt: field jobs, deploy to pickup, last 2 weeks and next 6', () => {
+    const start = D.addDays(T, -14), end = D.addDays(T, 42);
+    const jobs = D.wos.filter((w) => ['AMB', 'CM', 'CR', 'SIG'].includes(w.type) && D.open(w) && (w.deploy || w.planned)).filter((w) => { const s = w.deploy || w.planned, e = w.pickup || D.addDays(s, w.studyLen || 1); return e >= start && s <= end; });
+    return C.gantt({ start, end, today: T, rows: jobs.map((w) => { const s = w.deploy || w.planned, e = w.pickup || D.addDays(s, w.studyLen || 1); return { label: D.label(w), sub: w.type + (w.monitors ? ', ' + w.monitors + ' monitors' : ''), bars: [{ start: s, end: e, holder: 'Field', light: !w.deploy, tip: w.deploy ? 'Deployed' : 'Planned' }] }; }), legend: [{ label: 'Deployed', color: C.colors.holder.Field }, { label: 'Planned', color: C.colors.mix(C.colors.holder.Field, '#ffffff', 0.7) }] });
+  }, true);
+
+  card('C.gantt (holder strip)', 'One job from request to today, by holder, holds hatched', () => {
+    const w = D.wos.filter((x) => x.holds.length && x.history.length > 6).pop();
+    const bars = D.visits(w).filter((v) => v.holder !== 'None').map((v) => ({ start: v.start, end: v.end || T, holder: v.holder, label: v.name }));
+    w.holds.forEach((hd) => bars.push({ start: hd.start, end: hd.end || T, holder: 'Urban', color: C.colors.mute, hatch: true, label: 'On hold: ' + hd.reason }));
+    return C.gantt({ today: T, rows: [{ label: D.label(w), sub: w.type + ', ' + w.cust, bars: bars.filter((b) => !b.hatch) }, { label: 'Holds', bars: bars.filter((b) => b.hatch) }], start: w.created, end: D.deliveredAt(w) || T });
+  }, true);
+
+  card('C.calendarStrip', 'Calendar strip, 2 weeks: planned deploys and expected pickups', () => {
+    const items = [];
+    D.wos.filter((w) => D.open(w)).forEach((w) => {
+      if (w.planned && !w.deploy) items.push({ date: w.planned, label: D.label(w), sub: w.type === 'SIG' ? 'Field day' : 'Deploy, ' + (w.monitors || 0) + ' monitors', holder: 'Field', legend: 'Deploy' });
+      if (w.deploy && !w.pickup && w.studyLen) items.push({ date: D.addDays(w.deploy, w.studyLen), label: D.label(w), sub: 'Pickup, ' + (w.monitors || 0) + ' monitors', color: C.colors.cat[1], legend: 'Pickup' });
+    });
+    return C.calendarStrip({ start: D.weekStart(T), days: 14, today: T, items });
+  }, true);
+
+  card('C.paceBar', 'Pace bar: my hours this week against available hours', () => {
+    const ws = D.weekStart(T), mine = D.entries.filter((e) => e.person === ME && e.date >= ws);
+    const sum = (f) => D.sum(mine.filter(f).map((e) => e.hours));
+    return C.paceBar({ unit: ' h', target: D.available(ME, ws), targetLabel: 'available', segments: [{ name: 'WO', value: sum((e) => e.wo && !e.oos), color: C.colors.split.WO }, { name: 'Out of scope', value: sum((e) => e.oos), color: C.colors.split['Out of scope'] }, { name: 'General', value: sum((e) => !e.wo), color: C.colors.split.General }] });
+  });
+
+  card('C.rangeBar', 'Range bar with markers: one job against the 20th to 80th percentile for its type', () => {
+    const w = delivered.filter((x) => x.type === 'NMP' && D.hasHT(x)).sort((a, b) => D.holderDays(b).Customer - D.holderDays(a).Customer)[0], peers = delivered.filter((x) => x.type === w.type);
+    const ht = peers.filter(D.hasHT).map(D.humanTime), ct = peers.map(D.cycleTime);
+    return C.rangeBar({ rows: [{ label: 'Cycle Time', unit: ' d', low: D.pct(ct, 20), high: D.pct(ct, 80), markers: [{ label: D.label(w), value: D.cycleTime(w), color: C.colors.focus }] }, { label: 'Human Time', unit: ' h', low: D.pct(ht, 20), high: D.pct(ht, 80), markers: [{ label: D.label(w), value: D.humanTime(w), color: C.colors.focus }] }] });
+  });
+
+  card('C.smallMultiples', 'Small multiples: jobs per month for the four biggest customers', () => {
+    const ms = D.months(12), counts = D.countBy(D.wos.filter((w) => !w.rev && w.created >= ms[0].start), (w) => w.cust);
+    const top = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 4);
+    const series = top.map((c) => ms.map((m) => D.wos.filter((w) => !w.rev && w.cust === c && D.inRange(w.created, m)).length)), yMax = Math.max(...series.flat());
+    return C.smallMultiples({ min: 200, items: top.map((c, i) => ({ title: c, sub: counts[c] + ' jobs', chart: C.line({ x: ms.map((m) => m.label), series: [{ name: c, values: series[i] }], yMax, height: 90, points: false }) })) });
+  });
+
+  card('C.flow', 'Flow between holders: status changes, last 90 days', () => {
+    const since = D.addDays(T, -90), links = {};
+    D.wos.forEach((w) => w.history.forEach((h, k) => { if (!k || h.date < since) return; const a = D.WF[w.type][w.history[k - 1].si].holder, b = D.WF[w.type][h.si].holder; if (a === b || a === 'None' || b === 'None') return; links[a + '|' + b] = (links[a + '|' + b] || 0) + 1; }));
+    return C.flow({ nodes: D.HOLDERS, links: Object.entries(links).map(([k, v]) => ({ from: k.split('|')[0], to: k.split('|')[1], value: v })) });
+  }, false);
+
+  card('C.grid', 'Yes/no grid: CM jobs by month, invoiced or not', () => {
+    const ms = D.months(9), cms = D.wos.filter((w) => w.type === 'CM' && w.deploy && (w.pickup || T) >= ms[0].start);
+    return C.grid({ rows: cms.map((w) => ({ label: D.label(w), sub: w.cust })), cols: ms.map((m) => m.label), states: { yes: { label: 'Invoiced', color: C.colors.status.good, glyph: '✓' }, no: { label: 'Deployed, no invoice', color: C.colors.status.bad, glyph: '✕' } }, blankLabel: 'Not deployed',
+      cell: (ri, ci) => { const w = cms[ri], m = ms[ci], dep = w.deploy <= m.end && (w.pickup || T) >= m.start; if (!dep) return null; const inv = w.invoices.some((x) => x.date > m.end && x.date <= D.addDays(m.end, 31)); return { state: inv ? 'yes' : 'no', tip: inv ? 'Invoice ' + w.invoices.find((x) => x.date > m.end).no : 'No invoice for this month' }; } });
+  });
+
+  card('C.legend, C.note', 'Legend and note on their own', () => C.split([C.legend(D.HOLDERS.map((hd) => ({ label: hd, color: C.colors.holder[hd] }))), C.legend(D.types.map((t) => ({ label: t, color: C.colors.type[t] }))), C.note('Holder and WO type colours are fixed everywhere. Status colours (good, warning, bad) are only for state.')], { dir: 'col' }));
+
+  card('C.exportPreview', 'Export preview with a working Download CSV button', () => C.exportPreview({ filename: 'wo-human-time.csv', max: 5,
+    columns: [{ key: 'key', label: 'WO' }, { key: 'cust', label: 'Customer' }, { key: 'type', label: 'Type' }, { key: 'ht', label: 'Human Time', num: true, value: (w) => D.humanTime(w), fmt: (v) => D.num(v, 2) }, { key: 'inv', label: 'Invoices', value: (w) => w.invoices.map((x) => x.no).join(', ') }],
+    rows: delivered.filter(D.hasHT) }));
+
+  card('C.split', 'Number tile and short list in one card', () => {
+    const late = D.wos.filter(D.overdue).sort((a, b) => a.due - b.due);
+    return C.split([C.tile({ label: 'Overdue', value: late.length, status: 'bad', sub: 'Active jobs past the client due date' }), C.list({ max: 4, rows: late.map((w) => ({ title: D.label(w), text: w.cust, holder: D.st(w).holder, chips: [C.chip(D.between(w.due, T) + ' d late', 'bad')] })) })], { widths: [1, 2] });
+  });
+
+  card('C.chip, C.pill, C.dot, C.stageCell, C.select, C.button', 'Row pieces for list-like mockups (Schedule)', (body) => {
+    const rows = active.slice(0, 6); let cur = 'all';
+    const holder = el('div');
+    const drawRows = () => holder.replaceChildren(C.table({ sortable: false, columns: [
+      { key: 'wo', label: 'WO', render: (w) => D.label(w) },
+      { key: 'st', label: 'Status', render: (w) => C.pill(D.st(w).name, D.st(w).holder) },
+      { key: 'stg', label: 'Stages', render: (w) => D.STAGES.map(([c]) => C.stageCell(D.stage(w, c))) },
+      { key: 'nx', label: 'Next', render: (w) => (D.yourMove(w, w.eng) && D.WF[w.type][w.si + 1] ? C.button(D.WF[w.type][w.si + 1].name) : D.WF[w.type][w.si + 1] ? D.WF[w.type][w.si + 1].name : '') },
+    ], rows: rows.filter((w) => w.key === cur || cur === 'all'), highlight: (w) => w.key === cur }));
+    body.appendChild(C.select({ label: 'Work order', value: cur, options: [{ value: 'all', label: 'All six' }].concat(rows.map((w) => ({ value: w.key, label: D.label(w) + ', ' + w.cust }))), onChange: (v) => { cur = v; drawRows(); } }));
+    body.appendChild(holder); drawRows();
+    body.appendChild(el('p', 'c-note', 'Chips: ')).append(C.chip('3 d late', 'bad'), ' ', C.chip('in 4 d', 'warn'), ' ', C.chip('Approved', 'good'), ' ', C.chip('Draft', 'mute'), ' ', C.dot('QC'), 'QC dot');
+  }, true);
+
+  document.getElementById('count').textContent = n + ' cards';
+})();
+</script>
+</body>
+</html>

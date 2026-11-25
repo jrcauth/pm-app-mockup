@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option C: Lanes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87,400;87,600;100,600&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* The board is the app. Five lanes, one for each party that can be holding a job, so the screen answers "who has it?" at a glance. */
+  :root { --font: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --bg: #edf0ea; --panel: #fff; --ink: #172019; --mute: #627066; --line: #dce1d8; --hover: #f1f4ee;
+    --accent: #14532d; --accent-ink: #fff; --band: #123a24; --flag: #e8e337; }
+  body { font-stretch: 87%; }
+  .band { background: var(--band); color: #fff; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 20px; }
+  .band strong { font-stretch: 100%; font-weight: 600; font-size: 15px; margin-right: 8px; }
+  .band nav { display: flex; gap: 2px; }
+  .band nav button { border: 0; background: none; color: rgba(255,255,255,.7); padding: 6px 12px; border-radius: 6px; }
+  .band nav button[aria-current="page"] { background: rgba(255,255,255,.14); color: #fff; }
+  .band .u-seg { border-color: rgba(255,255,255,.25); background: none; }
+  .band .u-seg button { color: rgba(255,255,255,.7); } .band .u-seg button + button { border-color: rgba(255,255,255,.25); }
+  .band .u-seg button[aria-pressed="true"] { background: #fff; color: var(--band); }
+  .band .u-search { background: rgba(255,255,255,.1); border-color: transparent; color: #fff; }
+  .band .u-search::placeholder { color: rgba(255,255,255,.6); }
+  .band .u-role option { color: var(--ink); }
+  .band :focus-visible { outline-color: #fff; }
+  .board { display: grid; grid-template-columns: repeat(5, minmax(210px, 1fr)); gap: 14px; padding: 18px 20px 48px; overflow-x: auto; align-items: start; }
+  .lane h2 { font-size: 13px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; padding: 0 2px 8px; border-bottom: 3px solid var(--h); margin-bottom: 8px; }
+  .lane h2 span { color: var(--mute); font-weight: 400; margin-left: auto; }
+  .card { display: block; width: 100%; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; position: relative; }
+  .card:hover { border-color: var(--ink); }
+  .card p:first-child { display: flex; gap: 8px; color: var(--mute); }
+  .card p:first-child b { margin-left: auto; font-weight: 600; color: var(--ink); }
+  .card .cust { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .st { color: var(--mute); }
+  .card.move { box-shadow: inset 4px 0 0 var(--flag); padding-left: 13px; }
+  .card.hold { background: repeating-linear-gradient(135deg, var(--panel) 0 8px, var(--hover) 8px 16px); }
+  .none { color: var(--mute); padding: 6px 2px; }
+  .key { display: flex; align-items: center; gap: 8px; padding: 14px 20px 0; color: var(--mute); }
+  .key i { width: 4px; height: 14px; background: var(--flag); display: block; }
+  .page { padding: 20px; }
+  .page > div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 18px 20px; }
+  .drawer { position: fixed; inset: 0 0 0 auto; width: min(460px, 100vw); background: var(--panel); border-left: 3px solid var(--band); padding: 18px 22px 40px; overflow-y: auto; }
+  .drawer > button { float: right; border: 0; background: none; color: var(--mute); font-size: 20px; line-height: 1; padding: 2px 6px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="shared.js"></script>
+<script>
+const S = USG.state, e = USG.e;
+const card = (w) => `<button class="card${USG.yourMove(w) ? ' move' : ''}${w.hold ? ' hold' : ''}" data-open="${w.id}">
+  <p><span>${w.id}</span><span>${w.type}</span>${w.hold ? '<span>On hold</span>' : ''}<b class="${w.days >= 14 ? 'u-late' : ''}">${w.days} d</b></p>
+  <p class="cust">${e(w.cust)}</p><p class="st">${e(USG.st(w).name)}${S.scope === 'all' ? ', ' + e(w.eng.split(' ')[0]) : ''}</p></button>`;
+function board() {
+  const rows = USG.list().filter((w) => !USG.done(w)).sort((a, b) => b.days - a.days);
+  return `<p class="key"><i></i>Your move</p><div class="board">${USG.HOLDERS.map((h) => { const l = rows.filter((w) => USG.st(w).holder === h);
+    return `<section class="lane" data-h="${h}"><h2>${h === 'Urban' ? 'Urban engineers' : h}<span>${l.length}</span></h2>${l.map(card).join('') || '<p class="none">Nothing waiting here</p>'}</section>`; }).join('')}</div>`;
+}
+USG.render = () => {
+  if (S.scope === 'bill') S.scope = 'all';
+  const w = USG.byId(S.sel), anim = USG._last !== S.sel ? ' slide' : ''; USG._last = S.sel;
+  document.getElementById('app').innerHTML = `<header class="band"><strong>Urban Engineering</strong>
+    <nav aria-label="Main">${USG.nav().map(([id, l]) => `<button data-go="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${id === 'work' ? 'Board' : l}</button>`).join('')}</nav>
+    ${S.page === 'work' ? USG.seg([['mine', 'Mine'], ['all', 'Everyone']], S.scope, 'scope') : ''}<span class="u-spacer"></span>
+    ${S.page === 'work' ? USG.search('Search the board') : ''}<span>Sam Carter</span>${USG.roleSel()}</header>
+    ${S.page === 'work' ? board() : `<div class="page"><div class="u-scroll">${S.page === 'time' ? USG.timeHTML() : USG.insightsHTML()}</div></div>`}
+    ${w ? `<aside class="drawer${anim}" aria-label="Work order ${w.id}"><button data-close aria-label="Close">×</button>${USG.woHTML(w)}</aside>` : ''}`;
+};
+USG.render();
+</script>
+</body>
+</html>

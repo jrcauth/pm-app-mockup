@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option B: Top line</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* No sidebar. One line of navigation, one column of work, grouped by whose move it is. Green appears only where you have to act. */
+  :root { --font: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+    --bg: #fff; --panel: #fff; --ink: #17191a; --mute: #73787b; --line: #e9ebec; --hover: #f5f6f6;
+    --accent: #1a6b3c; --accent-ink: #fff; }
+  body { font-size: 14px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px 64px; }
+  .line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 26px; padding: 18px 0; }
+  .line strong { font-weight: 600; margin-right: 10px; }
+  .line nav { display: flex; gap: 22px; }
+  .line nav button { border: 0; background: none; padding: 4px 0; color: var(--mute); border-bottom: 2px solid transparent; }
+  .line nav button[aria-current="page"] { color: var(--ink); border-color: var(--ink); font-weight: 500; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 26px 0 8px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -.01em; margin-right: 8px; }
+  .u-seg { border: 0; gap: 4px; background: none; }
+  .u-seg button, .u-seg button + button { border: 0; border-radius: 6px; padding: 4px 10px; }
+  .u-seg button[aria-pressed="true"] { background: var(--hover); color: var(--ink); font-weight: 500; }
+  .u-search { border-color: transparent; background: var(--hover); }
+  .group { margin-top: 28px; }
+  .group h2 { font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
+  .group h2 span { color: var(--mute); font-weight: 400; }
+  .row { display: grid; grid-template-columns: 52px 44px minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(0, 1fr) 56px 64px; gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row:hover { background: var(--hover); }
+  .row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .status { display: flex; align-items: center; } .row .status span { overflow: hidden; text-overflow: ellipsis; } .row .status b { flex: none; }
+  .row .id { color: var(--mute); } .row .site { color: var(--mute); margin-left: 8px; }
+  .row .who { display: flex; align-items: center; gap: 7px; color: var(--mute); }
+  .group.act .row .cust { font-weight: 500; }
+  .group.act h2 { color: var(--accent); border-color: var(--accent); }
+  .back { border: 0; background: none; color: var(--mute); padding: 0; margin: 26px 0 18px; }
+  .detail { max-width: 720px; }
+  .empty { padding: 28px 0; color: var(--mute); }
+  .pagebody { margin-top: 20px; }
+  @media (max-width: 720px) { .wrap { padding-inline: 16px; } .row { grid-template-columns: 48px minmax(0, 1fr) 48px; } .row .type, .row .status, .row .who, .row .due { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script src="shared.js"></script>
+<script>
+const S = USG.state, e = USG.e;
+const row = (w) => { const s = USG.st(w); return `<li class="row" tabindex="0" data-open="${w.id}">
+  <span class="id">${w.id}</span><span class="type mute">${w.type}</span>
+  <span class="cust">${e(w.cust)}<span class="site">${e(w.site)}</span></span>
+  <span class="status"><span>${e(s.name)}</span>${w.hold ? '<b class="u-hold">On hold</b>' : ''}</span>
+  <span class="who">${USG.dot(s.holder)}${e(USG.who(w))}</span>
+  <span class="num ${w.days >= 14 ? 'u-late' : 'mute'}">${USG.done(w) ? '' : w.days + ' d'}</span>
+  <span class="due num ${USG.late(w) ? 'u-late' : 'mute'}">${USG.fmt(w.due)}</span></li>`; };
+const group = (title, list, cls) => list.length ? `<section class="group ${cls || ''}"><h2>${e(title)} <span>${list.length}</span></h2><ul>${list.map(row).join('')}</ul></section>` : '';
+function work() {
+  const rows = USG.list(); let body;
+  if (S.scope === 'mine') body = group('Your move', rows.filter(USG.yourMove), 'act') + group('Waiting on someone else', rows.filter((w) => !USG.yourMove(w) && !USG.done(w))) + group('Recently done', rows.filter(USG.done));
+  else { const key = { holder: (w) => USG.st(w).holder, eng: (w) => w.eng, type: (w) => w.type }[S.group]; const keys = S.group === 'holder' ? USG.HOLDERS : [...new Set(rows.map(key))].sort(); body = keys.map((k) => group(k, rows.filter((w) => key(w) === k))).join(''); }
+  const by = S.scope === 'all' ? `<select data-set="group" aria-label="Group by">${[['holder', 'Grouped by who holds it'], ['eng', 'Grouped by engineer'], ['type', 'Grouped by type']].map(([v, l]) => `<option value="${v}"${S.group === v ? ' selected' : ''}>${l}</option>`).join('')}</select>` : '';
+  return `<div class="tools"><h1>Work</h1>${USG.seg(USG.scopes(), S.scope, 'scope')}<span class="u-spacer"></span>${by}${USG.search('Search')}</div>${body || '<p class="empty">Nothing here. Clear the search to see everything.</p>'}`;
+}
+USG.render = () => {
+  const w = USG.byId(S.sel);
+  const page = w ? `<button class="back" data-close>Back</button><div class="detail">${USG.woHTML(w)}</div>`
+    : S.page === 'work' ? work()
+    : `<div class="tools"><h1>${S.page === 'time' ? 'Time' : 'Insights'}</h1></div><div class="pagebody u-scroll">${S.page === 'time' ? USG.timeHTML() : USG.insightsHTML()}</div>`;
+  document.getElementById('app').innerHTML = `<header class="line"><strong>Urban Engineering</strong>
+    <nav aria-label="Main">${USG.nav().map(([id, l]) => `<button data-go="${id}" aria-current="${S.page === id && !w ? 'page' : 'false'}">${l}</button>`).join('')}</nav>
+    <span class="u-spacer"></span><span class="mute">Sam Carter</span>${USG.roleSel()}</header>${page}`;
+};
+USG.render();
+</script>
+</body>
+</html>
