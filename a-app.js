@@ -98,15 +98,15 @@
   }
 
   /* ---------- state ---------- */
-  const S = { page: 'work', scope: 'mine', role: 'Engineer', q: '', type: '', holder: '', eng: '', sort: 'pri', dir: 1, sel: null, quick: '', ttab: 'week', itab: 'bottlenecks', wtab: 'details', sheet: 'one', lstat: '', fresh: null, nw: { type: 'NMP', cust: '', site: '', eng: 'Sam Carter', due: '' }, atype: 'NMP', moveDate: iso(TODAY), pending: null, err: '',
+  const S = { page: 'work', scope: 'mine', role: 'Engineer', q: '', type: '', holder: '', eng: '', sort: 'pri', dir: 1, sel: null, quick: '', ttab: 'week', itab: 'bottlenecks', wtab: 'details', lview: 'all', lcust: '', invRow: null, sheet: 'one', lstat: '', fresh: null, nw: { type: 'NMP', cust: '', site: '', eng: 'Sam Carter', due: '' }, atype: 'NMP', moveDate: iso(TODAY), pending: null, err: '',
     week: 0, miss: [], te: { kind: 'wo', date: '2026-11-25', wo: '', task: '', sub: '', h: 1, oos: false, note: '', off: '' } };
   new URLSearchParams(location.hash.slice(1)).forEach((v, k) => { if (k in S) S[k] = v; });
-  if (S.page === 'log') { S.sort = 'id'; S.dir = -1; }
+  if (S.page === 'log') Object.assign(S, S.lview === 'all' ? { sort: 'id', dir: -1 } : S.lview === 'out' ? { sort: 'deploy', dir: 1 } : { sort: 'days', dir: -1 });
   const ROLES = ['Engineer', 'Manager', 'Billing', 'Leadership', 'Super user'];
   const nav = () => [['work', 'Work'], ['log', 'WO Log'], ['time', 'Time']].concat(S.role === 'Manager' || S.role === 'Leadership' ? [['insights', 'Insights']] : [], S.role === 'Super user' ? [['admin', 'Admin']] : []);
-  const scopes = () => [['mine', 'Assigned to me'], ['all', 'Everyone']].concat(S.role === 'Engineer' ? [] : [['bill', 'To bill']]);
+  const scopes = () => [['mine', 'Assigned to me'], ['all', 'Everyone']];
   const canBill = () => S.role === 'Billing' || S.role === 'Super user';
-  const val = { pri: (w) => w.pri || 999, id: (w) => w.key, type: (w) => w.type, cust: (w) => w.cust, status: (w) => w.si / WF[w.type].length, days: (w) => daysIn(w), due: (w) => +w.due, eng: (w) => w.eng, created: (w) => +w.created };
+  const val = { pri: (w) => w.pri || 999, id: (w) => w.key, type: (w) => w.type, cust: (w) => w.cust, status: (w) => w.si / WF[w.type].length, days: (w) => daysIn(w), due: (w) => +w.due, eng: (w) => w.eng, created: (w) => +w.created, deploy: (w) => +(w.deploy || 0) };
   const plainOrder = () => S.scope === 'all' && S.sort === 'pri' && S.dir === 1 && !S.q && !S.quick && !S.type && !S.holder && !S.eng;
   const soon = (w) => !done(w) && st(w).holder !== 'Billing' && between(TODAY, w.due) >= 0 && between(TODAY, w.due) <= 7;
   const QUICK = [['move', 'Your move', (w) => yourMove(w), 'g'], ['due', 'Due in 7 days', soon, 'a'], ['late', 'Past due', (w) => late(w), 'r'], ['qc', 'With QC', (w) => st(w).holder === 'QC', 'q'], ['cust', 'With the customer', (w) => st(w).holder === 'Customer', 'c'], ['hold', 'On hold', (w) => !!hold(w), 'n']];
@@ -164,30 +164,52 @@
 
   /* ---------- WO Log: the register. One row per WO#, in the WO Log's column order; where a WO gets its number and date (A1) ---------- */
   const ini = (n) => n.split(' ').map((x) => x[0]).join('');
+  /* Billing views of the log: what Billing works from each day (replaces the monthly Outstanding WOs sheets) */
   const toInvoice = (w) => st(w).holder === 'Billing' && !w.invoices.length;
+  const monitorsOut = (w) => !done(w) && !!w.deploy && !w.pickup;
+  const invOpen = (w) => w.invoices.length > 0 && !done(w);
+  const oosHours = (w) => (parseInt(w.id.slice(-2), 10) % 4 === 0 ? Math.round(w.hours * 0.12 * 4) / 4 : 0);
+  const studyDays = (w) => { const n = parseFloat(w.studyLen); return n ? (/hour/i.test(w.studyLen) ? n / 24 : n) : 0; };
+  const deliveredOn = (w) => w.reportDate || w.pickup || w.history[w.history.length - 1].date;
+  const LVIEW = { all: () => true, inv: toInvoice, out: monitorsOut, part: invOpen };
   function logRows() {
-    const q = S.q.trim().toLowerCase();
-    return wos.filter((w) => (S.sheet === 'ong') === (w.type === 'CM') && (!S.lstat || { 'To invoice': toInvoice(w), Open: !done(w), Invoiced: w.invoices.length > 0, 'Closed or cancelled': done(w) }[S.lstat])
+    const q = S.q.trim().toLowerCase(), v = LVIEW[S.lview] ? S.lview : 'all';
+    return wos.filter((w) => (v === 'all' ? (S.sheet === 'ong') === (w.type === 'CM') : LVIEW[v](w)) && (!S.type || w.type === S.type) && (!S.lcust || w.cust === S.lcust)
       && (!q || (label(w) + ' ' + w.type + ' ' + w.cust + ' ' + w.site + ' ' + w.eng + ' ' + w.invoices.map((x) => x.no).join(' ')).toLowerCase().includes(q)))
       .sort((a, b) => { const x = val[S.sort](a), y = val[S.sort](b); return (x < y ? -1 : x > y ? 1 : 0) * S.dir; });
   }
   function wolog() {
-    const rows = logRows(), n = S.nw, ong = S.sheet === 'ong';
-    return `<div class="top"><h1>WO Log</h1>${seg([['one', 'One-timers'], ['ong', 'Ongoing']], S.sheet, 'sheet')}${sel('lstat', 'All work orders', ['To invoice', 'Open', 'Invoiced', 'Closed or cancelled'])}
-      <span class="u-spacer"></span><span class="u-sub">${rows.length} work orders, ${rows.filter(toInvoice).length} to invoice</span><input id="q" class="u-search" data-q type="search" placeholder="Search WO, customer, site, invoice" value="${e(S.q)}" aria-label="Search the WO Log"><button class="u-btn" data-act="export">Export</button></div>
-      <div class="sheet pad newwo"><strong>New work order</strong>
-        ${ong ? '' : fld('Type', `<select data-nw="type">${opts(Object.keys(WF).filter((t) => t !== 'CM'), n.type)}</select>`)}
-        ${fld('Customer', `<input data-nw="cust" list="custs" value="${e(n.cust)}">`, 'grow')}${fld('Site', `<input data-nw="site" list="sites" value="${e(n.site)}">`, 'grow')}
-        ${fld('Assigned engineer', `<select data-nw="eng">${opts(ENG, n.eng)}</select>`)}${fld('Client due date', `<input data-nw="due" type="date" value="${e(n.due)}">`)}
-        <button class="u-btn primary" data-act="create">Create work order</button>
-        <span class="u-sub hint">${S.err ? `<span class="u-late">${e(S.err)}</span>` : `It gets the next ${ong ? 'EO' : 'E'} number and today's date as the date assigned.`}</span></div>
-      <div class="sheet u-scroll"><p class="key"><span class="sw pink"></span>Delivered, not invoiced<span class="sw green"></span>Invoiced<span class="sw red"></span>Cancelled</p><table class="u-table log"><thead><tr>${th('id', 'WO')}${th('created', 'Assigned')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}${th('eng', 'Eng')}<th>QC</th><th>Phase</th><th>Description</th>${th('due', 'Due')}<th class="num">Mon.</th><th>Deployed</th><th>Picked up</th><th>Report</th>${th('status', 'Status')}<th>Inv. sent</th><th>Invoice</th><th class="num">Hours</th></tr></thead><tbody>
+    const rows = logRows(), n = S.nw, ong = S.sheet === 'ong', v = LVIEW[S.lview] ? S.lview : 'all', bill = canBill();
+    const views = [['all', 'All work orders'], ['inv', `To invoice ${wos.filter(toInvoice).length}`], ['out', `Monitors out ${wos.filter(monitorsOut).length}`], ['part', `Invoiced, not closed ${wos.filter(invOpen).length}`]];
+    const name = (w) => `<td class="wo">${w.id}${w.rev ? `<b class="u-hold">REV ${w.rev}</b>` : ''}</td><td><b>${e(w.cust)}</b></td><td>${e(w.site)}</td><td>${w.type}</td>`;
+    const editor = (w, cols) => (S.invRow === w.key ? `<tr class="inved"><td colspan="${cols}"><span>Invoice for ${label(w)}</span><input id="invd" type="date" value="${iso(TODAY)}" aria-label="Invoice sent date"><input id="invn" placeholder="Invoice number" aria-label="Invoice number"><button class="u-btn primary" data-act="invrow" data-k="${w.key}">Save invoice</button><button class="u-btn" data-act="invcancel">Cancel</button></td></tr>` : '');
+    const addBtn = (w) => (bill ? `<button class="u-btn" data-act="invopen" data-k="${w.key}">Add invoice</button>` : '');
+    const daysOut = (w) => (w.deploy ? between(w.deploy, w.pickup || TODAY) : '');
+    let table;
+    if (v === 'inv') table = `<table class="u-table log"><thead><tr>${th('id', 'WO')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}<th>Delivered</th>${th('days', 'Days waiting', 'num')}<th class="num">Mon.</th><th>Deployed</th><th>Picked up</th><th class="num">Days out</th><th>Study length</th><th class="num">Hours</th><th class="num">Out of scope</th><th>Billing comment</th><th></th></tr></thead><tbody>
+        ${rows.map((w) => `<tr tabindex="0" data-open="${w.key}">${name(w)}<td class="pink">${fmt(deliveredOn(w))}</td><td class="num">${daysIn(w) >= 14 ? `<b class="chip red">${daysIn(w)} d</b>` : daysIn(w) + ' d'}</td><td class="num">${w.monitors || ''}</td><td>${fmt(w.deploy)}</td><td>${fmt(w.pickup)}</td><td class="num">${daysOut(w)}</td><td>${e(w.studyLen || '')}</td><td class="num">${w.hours.toFixed(1)}</td><td class="num">${oosHours(w) ? `<b class="chip amber">${oosHours(w).toFixed(2)}</b>` : ''}</td><td class="cm">${e(w.billingComment)}</td><td class="num">${addBtn(w)}</td></tr>${editor(w, 15)}`).join('')}</tbody></table>`;
+    else if (v === 'part') table = `<table class="u-table log"><thead><tr>${th('id', 'WO')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}<th>Delivered</th><th>Invoices</th><th>Last invoice</th><th class="num">Days since</th><th class="num">Hours</th><th>Billing comment</th><th></th></tr></thead><tbody>
+        ${rows.map((w) => { const last = w.invoices[w.invoices.length - 1]; return `<tr tabindex="0" data-open="${w.key}" class="inv">${name(w)}<td>${st(w).holder === 'Billing' ? fmt(deliveredOn(w)) : '<span class="mute">Not yet</span>'}</td><td>${w.invoices.map((x) => e(x.no)).join(', ')}</td><td>${fmt(last.date)}</td><td class="num">${between(last.date, TODAY)} d</td><td class="num">${w.hours.toFixed(1)}</td><td class="cm">${e(w.billingComment)}</td><td class="num">${addBtn(w)}${bill && st(w).holder === 'Billing' ? ` <button class="u-btn primary" data-act="closerow" data-k="${w.key}">Close</button>` : ''}</td></tr>${editor(w, 11)}`; }).join('')}</tbody></table>`;
+    else if (v === 'out') table = `<table class="u-table log"><thead><tr>${th('id', 'WO')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}<th class="num">Monitors</th>${th('deploy', 'Deployed')}<th class="num">Days out so far</th><th>Study length</th><th>Due back</th><th>Last invoice</th><th>Billing comment</th><th></th></tr></thead><tbody>
+        ${rows.map((w) => { const sd = studyDays(w), back = sd ? new Date(+w.deploy + sd * DAY) : null, over = back ? between(back, TODAY) : 0, last = w.invoices[w.invoices.length - 1];
+          return `<tr tabindex="0" data-open="${w.key}">${name(w)}<td class="num">${w.monitors || ''}</td><td>${fmt(w.deploy)}</td><td class="num">${daysOut(w)} d</td><td>${e(w.studyLen || (w.type === 'CM' ? 'Ongoing' : ''))}</td><td>${back ? fmt(back) + (over > 0 ? `<b class="chip red">${over} d over</b>` : '') : ''}</td><td>${last ? fmt(last.date) : '<span class="mute">None yet</span>'}</td><td class="cm">${e(w.billingComment)}</td><td class="num">${addBtn(w)}</td></tr>${editor(w, 12)}`; }).join('')}</tbody></table>`;
+    else table = `<p class="key"><span class="sw pink"></span>Delivered, not invoiced<span class="sw green"></span>Invoiced<span class="sw red"></span>Cancelled</p><table class="u-table log"><thead><tr>${th('id', 'WO')}${th('created', 'Assigned')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}${th('eng', 'Eng')}<th>QC</th><th>Phase</th><th>Description</th>${th('due', 'Due')}<th class="num">Mon.</th><th>Deployed</th><th>Picked up</th><th>Report</th>${th('status', 'Status')}<th>Inv. sent</th><th>Invoice</th><th class="num">Hours</th></tr></thead><tbody>
         ${rows.map((w) => { const s = st(w), last = w.invoices[w.invoices.length - 1];
           const pk = toInvoice(w) ? ' class="pink"' : '';
           return `<tr tabindex="0" data-open="${w.key}" class="${s.name === 'Cancelled' ? 'cx' : w.invoices.length ? 'inv' : ''}${S.fresh === w.key ? ' fresh' : ''}"><td class="wo">${w.id}${w.rev ? `<b class="u-hold">REV ${w.rev}</b>` : ''}</td><td>${fmt(w.created)}</td><td><b>${e(w.cust)}</b></td><td>${e(w.site)}</td><td>${w.type}</td><td>${ini(w.eng)}</td><td>${ini(w.qc)}</td><td>${w.phase.map((p) => (p === 'N/A' ? p : p[0])).join('/')}</td><td class="desc">${e(w.scope)}</td>
             <td class="${late(w) ? 'u-late' : ''}">${fmt(w.due)}</td><td class="num">${w.monitors || ''}</td><td>${fmt(w.deploy)}</td><td>${fmt(w.pickup)}</td><td${pk}>${fmt(w.reportDate)}</td>
-            <td${pk}><span class="who">${dot(s.holder)}${e(s.name)}</span>${hold(w) ? '<b class="u-hold">On hold</b>' : ''}</td><td${pk}>${last ? fmt(last.date) : ''}</td><td${pk}>${toInvoice(w) ? 'Not invoiced' : w.invoices.map((x) => e(x.no)).join(', ')}</td><td class="num">${w.hours ? w.hours.toFixed(1) : ''}</td></tr>`; }).join('')}</tbody></table>
-        ${rows.length ? '' : '<p class="empty">No work orders match. Clear the search or the filter.</p>'}</div>
+            <td${pk}><span class="who">${dot(s.holder)}${e(s.name)}</span>${hold(w) ? '<b class="u-hold">On hold</b>' : ''}</td><td${pk}>${last ? fmt(last.date) : ''}</td><td${pk}>${toInvoice(w) ? 'Not invoiced' : w.invoices.map((x) => e(x.no)).join(', ')}</td><td class="num">${w.hours ? w.hours.toFixed(1) : ''}</td></tr>`; }).join('')}</tbody></table>`;
+    const filtered = S.lcust || S.type || S.q;
+    return `<div class="top"><h1>WO Log</h1>${seg(views, v, 'lview')}${v === 'all' ? seg([['one', 'One-timers'], ['ong', 'Ongoing']], S.sheet, 'sheet') : ''}
+      ${sel('lcust', 'Any customer', CUST.map((c) => c[0]))}${sel('type', 'Any type', Object.keys(WF))}${filtered ? '<button class="link" data-act="clear">Clear filters</button>' : ''}
+      <span class="u-spacer"></span><span class="u-sub">${rows.length} work orders</span><input id="q" class="u-search" data-q type="search" placeholder="Search WO, customer, site, invoice" value="${e(S.q)}" aria-label="Search the WO Log"><button class="u-btn" data-act="export">Export</button></div>
+      ${v === 'all' ? `<div class="sheet pad newwo"><strong>New work order</strong>
+        ${ong ? '' : fld('Type', `<select data-nw="type">${opts(Object.keys(WF).filter((t) => t !== 'CM'), n.type)}</select>`)}
+        ${fld('Customer', `<input data-nw="cust" list="custs" value="${e(n.cust)}">`, 'grow')}${fld('Site', `<input data-nw="site" list="sites" value="${e(n.site)}">`, 'grow')}
+        ${fld('Assigned engineer', `<select data-nw="eng">${opts(ENG, n.eng)}</select>`)}${fld('Client due date', `<input data-nw="due" type="date" value="${e(n.due)}">`)}
+        <button class="u-btn primary" data-act="create">Create work order</button>
+        <span class="u-sub hint">${S.err ? `<span class="u-late">${e(S.err)}</span>` : `It gets the next ${ong ? 'EO' : 'E'} number and today's date as the date assigned.`}</span></div>` : ''}
+      <div class="sheet u-scroll">${table}${rows.length ? '' : `<p class="empty">${v === 'inv' ? 'Nothing is waiting for an invoice.' : v === 'out' ? 'No monitors are out.' : 'No work orders match.'}${filtered ? ' Clear the filters to see more.' : ''}</p>`}</div>
       <datalist id="custs">${CUST.map((c) => `<option value="${e(c[0])}">`).join('')}</datalist><datalist id="sites">${SITES.map((x) => `<option value="${e(x)}">`).join('')}</datalist>`;
   }
 
@@ -208,7 +230,7 @@
     const first = (i) => w.history.find((x) => x.si === i), visits = (i) => w.history.filter((x) => x.si === i).length;
     const canNext = !done(w) && next && next.name !== 'Cancelled' && (next.name !== 'Closed' || canBill());
     const pend = S.pending != null ? flow[S.pending] : null, log = changelog(w);
-    const tabs = [['details', 'Details'], ['milestones', 'Milestones'], ['changelog', 'Change log', log.length]];
+    const tabs = [['details', 'Details'], ['milestones', 'Milestones'], ['billing', 'Billing', w.invoices.length], ['changelog', 'Change log', log.length]];
     const panel = {
       details: () => `<h2>Details</h2><div class="fs">
           ${fld('Customer', inp(w, 'cust', 'text', 'list="custs"'))}${fld('Site', inp(w, 'site', 'text', 'list="sites"'))}${fld('Industry', `<select data-f="industry">${opts(INDUSTRIES, w.industry)}</select>`)}${fld('Customer contact', inp(w, 'contact'))}
@@ -234,7 +256,11 @@
         return `<h2>Milestones</h2>${panel.workflow()}<p class="mute lead">Each status stamps a milestone the first time the job enters it.</p><div class="u-scroll"><table class="u-table"><thead><tr><th>Milestone</th><th>Date</th><th class="num">Days from request</th><th>Status</th><th>With</th></tr></thead><tbody>${rows.map((m) => `<tr class="${m.now ? 'now' : m.d ? '' : 'shut'}"><td>${e(m.name)}</td><td>${m.d ? fmt(m.d) : 'Not yet'}</td><td class="num">${m.d ? between(w.created, m.d) : ''}</td><td>${e(m.from)}${m.n > 1 ? ` <span class="mute">${m.n} visits</span>` : ''}</td><td>${m.h ? `<span class="who">${dot(m.h)}${m.h}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>`; },
       comments: () => `<h2>Comments</h2><input id="cmt" class="u-input" placeholder="Add a comment and press Enter" aria-label="Add a comment"><ul class="feed">${w.comments.map((c) => `<li><b>${e(c.by)}</b><time>${fmt(c.date)}</time><p>${e(c.text)}</p></li>`).join('')}</ul>`,
       hours: () => `<h2>Hours</h2><p class="big"><strong>${w.hours.toFixed(2)}</strong> <span class="mute">hours logged</span></p><ul class="u-bars">${[['Modeling', 0.45], ['Report', 0.3], ['Project Administrative', 0.15], ['Customer Communication', 0.1]].map(([t, p]) => `<li><span>${t}</span><i><b style="width:${(p / 0.45) * 100}%"></b></i><em>${(w.hours * p).toFixed(1)}</em></li>`).join('')}</ul>`,
-      billing: () => `<h2>Billing</h2>
+      billing: () => `<h2>Billing</h2><p class="mute lead">What Billing reads off the job to raise an invoice. No dollar amounts are kept here.</p><div class="fs">
+          ${fld('WO type', ro(w.type))}${w.monitors !== undefined ? fld('Monitors required', ro(String(w.monitors || ''))) : ''}${w.studyLen !== undefined ? fld('Study length', ro(e(w.studyLen))) : ''}
+          ${isField ? fld('Actual deploy date', ro(fmt(w.deploy))) + fld('Actual pickup date', ro(fmt(w.pickup))) + fld('Days deployed', ro(w.deploy ? between(w.deploy, w.pickup || TODAY) + (w.pickup ? '' : ' so far') : '')) : ''}
+          ${w.type === 'CM' ? '' : fld('Report provided', ro(fmt(w.reportDate)))}${fld('Hours logged', ro(w.hours.toFixed(2)))}${fld('Out-of-scope hours', ro(oosHours(w) ? oosHours(w).toFixed(2) : 'None'))}</div>
+        <h2>Invoices</h2>
         <table class="u-table inv"><thead><tr><th>Invoice sent</th><th>Invoice number</th></tr></thead><tbody>${w.invoices.map((x) => `<tr><td>${fmt(x.date)}</td><td>${e(x.no)}</td></tr>`).join('') || '<tr><td colspan="2" class="mute">No invoices yet</td></tr>'}</tbody></table>
         ${canBill() ? `<div class="addinv"><input id="invd" type="date" value="${iso(TODAY)}" aria-label="Invoice sent date"><input id="invn" placeholder="Invoice number" aria-label="Invoice number"><button class="u-btn" data-act="inv">Add invoice</button></div>` : ''}
         <div class="fs">${fld('Billing comment', canBill() ? `<textarea data-f="billingComment" rows="2">${e(w.billingComment)}</textarea>` : ro(e(w.billingComment) || '<span class="mute">None</span>'), 'wide')}</div>
@@ -248,7 +274,7 @@
       ${done(w) ? '' : `<label class="f stpick"><span>Change status</span><select data-act="setstatus" aria-label="Change status">${flow.map((x, i) => (x.kind === 'Done' ? '' : `<option value="${i}"${i === w.si ? ' selected' : ''}>${e(x.name)}</option>`)).join('')}</select></label>`}
       ${h ? `<p class="banner">On hold since ${fmt(h.start)}: ${e(h.reason)} <button class="u-btn" data-act="unhold">Take off hold</button></p>` : ''}</header>
     <div class="rec-body"><nav class="vtabs" aria-label="Work order sections">${tabs.map(([k, l, c]) => `<button data-tab="wtab:${k}" aria-current="${S.wtab === k ? 'page' : 'false'}">${l}${c ? `<span>${c}</span>` : ''}</button>`).join('')}</nav>
-      <section class="sheet pad panel">${S.wtab === 'milestones' ? panel.milestones() : S.wtab === 'changelog' ? panel.changelog() : `<div class="dcols"><div>${panel.details()}${panel.billing()}${panel.hours()}</div><aside>${panel.comments()}</aside></div>`}</section></div>
+      <section class="sheet pad panel">${S.wtab === 'milestones' ? panel.milestones() : S.wtab === 'changelog' ? panel.changelog() : S.wtab === 'billing' ? panel.billing() : `<div class="dcols"><div>${panel.details()}${panel.hours()}</div><aside>${panel.comments()}</aside></div>`}</section></div>
     <datalist id="custs">${CUST.map((c) => `<option value="${e(c[0])}">`).join('')}</datalist><datalist id="sites">${SITES.map((x) => `<option value="${e(x)}">`).join('')}</datalist>`;
   }
   function move(w, i) {
@@ -354,12 +380,17 @@
     const t = ev.target.closest('[data-go],[data-scope],[data-open],[data-sort],[data-close],[data-tab],button[data-act]');
     if (!t) return;
     const d = t.dataset, w = byKey(S.sel);
-    if (d.go) { S.page = d.go; S.sel = null; S.q = ''; S.err = ''; Object.assign(S, d.go === 'log' ? { sort: 'id', dir: -1 } : { sort: 'pri', dir: 1 }); }
+    if (d.go) { S.page = d.go; S.sel = null; S.q = ''; S.err = ''; S.type = ''; S.lcust = ''; S.invRow = null; if (d.go === 'log') S.lview = canBill() ? 'inv' : 'all'; Object.assign(S, d.go !== 'log' ? { sort: 'pri', dir: 1 } : S.lview === 'inv' ? { sort: 'days', dir: -1 } : { sort: 'id', dir: -1 }); }
     else if (d.scope) S.scope = d.scope;
-    else if (d.open) { S.sel = byKey(d.open) ? d.open : S.sel; S.wtab = 'details'; S.pending = null; S.moveDate = iso(TODAY); ev.stopPropagation(); }
+    else if (d.open) { S.sel = byKey(d.open) ? d.open : S.sel; S.wtab = S.page === 'log' && S.lview !== 'all' ? 'billing' : 'details'; S.pending = null; S.moveDate = iso(TODAY); ev.stopPropagation(); }
     else if ('close' in d) S.sel = null;
     else if (d.sort) { if (S.sort === d.sort) S.dir *= -1; else { S.sort = d.sort; S.dir = 1; } }
-    else if (d.tab) { const [k, v] = d.tab.split(':'); S[k] = k === 'quick' && S[k] === v ? '' : v; }
+    else if (d.tab) { const [k, v] = d.tab.split(':'); S[k] = k === 'quick' && S[k] === v ? '' : v; if (k === 'lview') { S.invRow = null; Object.assign(S, v === 'all' ? { sort: 'id', dir: -1 } : v === 'out' ? { sort: 'deploy', dir: 1 } : { sort: 'days', dir: -1 }); } }
+    else if (d.act === 'invopen') S.invRow = d.k;
+    else if (d.act === 'invcancel') S.invRow = null;
+    else if (d.act === 'invrow') { const x = byKey(d.k), n = document.getElementById('invn').value.trim(); if (n) { x.invoices.push({ date: parse(document.getElementById('invd').value) || TODAY, no: n }); edit(x, 'Invoice added', '', n); S.invRow = null; } }
+    else if (d.act === 'closerow') { const x = byKey(d.k); move(x, WF[x.type].length - 2); }
+    else if (d.act === 'clear') { S.lcust = ''; S.type = ''; S.q = ''; }
     else if (d.act === 'rownext') { const x = byKey(d.k); move(x, x.si + 1); }
     else if (d.act === 'next') move(w, w.si + 1);
     else if (d.act === 'confirm') move(w, S.pending);
@@ -392,7 +423,7 @@
   });
   document.addEventListener('change', (ev) => {
     const t = ev.target, d = t.dataset, w = byKey(S.sel);
-    if (d.set) { S[d.set] = t.value; if (d.set === 'role') { if (!nav().some((n) => n[0] === S.page)) S.page = 'work'; if (!scopes().some((n) => n[0] === S.scope)) S.scope = 'mine'; if (S.role === 'Billing') S.scope = 'bill'; } }
+    if (d.set) { S[d.set] = t.value; if (d.set === 'role') { if (!nav().some((n) => n[0] === S.page)) S.page = 'work'; if (!scopes().some((n) => n[0] === S.scope)) S.scope = 'mine'; if (S.role === 'Billing') { S.page = 'log'; S.sel = null; S.lview = 'inv'; S.sort = 'days'; S.dir = -1; } } }
     else if (d.act === 'setstatus') move(w, +t.value);
     else if (d.act === 'jump' && t.value !== '') { const i = +t.value; if (i > w.si + 1) S.pending = i; else move(w, i); }
     else if (d.act === 'hold' && t.value) { w.holds.push({ reason: t.value, start: TODAY, end: null }); edit(w, 'On hold', '', t.value); }
