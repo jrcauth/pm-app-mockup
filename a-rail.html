@@ -73,9 +73,22 @@
   .work tr.grp.act td { background: #e6f1ea; color: var(--accent); }
 
   .work .sc { width: 60px; } .work td.stg, .work th.stg { padding-inline: 3px; }
-  .work td.cust { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
+  .work td.cust { max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
   .work td:nth-last-child(2) { max-width: 150px; overflow: hidden; text-overflow: ellipsis; } .nextb { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .work td.note { min-width: 190px; }
+
+  /* WO Log colours, as on the WO Log sheet: pink = delivered, not invoiced; green = invoiced; red = cancelled */
+  .log tr.inv td { background: #dff0df; } .log td.pink { background: #fbd5e3; font-weight: 600; }
+  .log tr.cx td { background: #f8dcd9; color: var(--mute); }
+  .key .sw { display: inline-block; width: 26px; height: 14px; border-radius: 3px; margin-left: 10px; border: 1px solid rgba(0,0,0,.08); }
+  .key .sw:first-child { margin-left: 0; } .sw.pink { background: #fbd5e3; } .sw.green { background: #dff0df; } .sw.red { background: #f8dcd9; }
+  .stpick select { min-width: 240px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--panel); }
+  /* time entry */
+  .entry .kind { flex-basis: 100%; align-self: flex-start; width: fit-content; }
+  .req { font-style: normal; color: var(--late); margin-left: 4px; } .f.miss select, .f.miss input { border-color: var(--late); background: #fdf1f0; }
+  .wknav { display: inline-flex; align-items: center; gap: 10px; margin-right: 8px; } .wknav strong { min-width: 120px; text-align: center; }
+  .u-btn:disabled { opacity: .4; cursor: default; } .offrow td { background: var(--hover); } .day td:first-child .tag { white-space: nowrap; }
+  main > .banner { margin-bottom: 14px; }
 
   /* WO Log */
   .log td, .log th { white-space: nowrap; padding: 5px 8px; font-size: 13px; }

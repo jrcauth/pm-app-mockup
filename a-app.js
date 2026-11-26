@@ -99,12 +99,12 @@
 
   /* ---------- state ---------- */
   const S = { page: 'work', scope: 'mine', role: 'Engineer', q: '', type: '', holder: '', eng: '', sort: 'pri', dir: 1, sel: null, quick: '', ttab: 'week', itab: 'bottlenecks', wtab: 'details', sheet: 'one', lstat: '', fresh: null, nw: { type: 'NMP', cust: '', site: '', eng: 'Sam Carter', due: '' }, atype: 'NMP', moveDate: iso(TODAY), pending: null, err: '',
-    te: { d: 2, wo: '', task: '', sub: '', h: 1, oos: false, note: '' } };
+    week: 0, miss: [], te: { kind: 'wo', date: '2026-11-25', wo: '', task: '', sub: '', h: 1, oos: false, note: '', off: '' } };
   new URLSearchParams(location.hash.slice(1)).forEach((v, k) => { if (k in S) S[k] = v; });
   if (S.page === 'log') { S.sort = 'id'; S.dir = -1; }
   const ROLES = ['Engineer', 'Manager', 'Billing', 'Leadership', 'Super user'];
   const nav = () => [['work', 'Work'], ['log', 'WO Log'], ['time', 'Time']].concat(S.role === 'Manager' || S.role === 'Leadership' ? [['insights', 'Insights']] : [], S.role === 'Super user' ? [['admin', 'Admin']] : []);
-  const scopes = () => [['mine', 'Mine'], ['all', 'Everyone']].concat(S.role === 'Engineer' ? [] : [['bill', 'To bill']]);
+  const scopes = () => [['mine', 'Assigned to me'], ['all', 'Everyone']].concat(S.role === 'Engineer' ? [] : [['bill', 'To bill']]);
   const canBill = () => S.role === 'Billing' || S.role === 'Super user';
   const val = { pri: (w) => w.pri || 999, id: (w) => w.key, type: (w) => w.type, cust: (w) => w.cust, status: (w) => w.si / WF[w.type].length, days: (w) => daysIn(w), due: (w) => +w.due, eng: (w) => w.eng, created: (w) => +w.created };
   const plainOrder = () => S.scope === 'all' && S.sort === 'pri' && S.dir === 1 && !S.q && !S.quick && !S.type && !S.holder && !S.eng;
@@ -135,20 +135,18 @@
   const dueCell = (w) => { const n = between(TODAY, w.due); return fmt(w.due) + (done(w) || st(w).holder === 'Billing' ? '' : n < 0 ? `<b class="chip red">${-n} d late</b>` : n <= 7 ? `<b class="chip amber">${n ? `in ${n} d` : 'today'}</b>` : ''); };
   const daysCell = (w) => { const n = daysIn(w); return done(w) ? '' : n >= 7 ? `<b class="chip ${n >= 14 ? 'red' : 'amber'}">${n} d</b>` : `${n} d`; };
   function row(w, drag) {
-    const s = st(w), f = flags(w).filter((x) => !x.startsWith('Past')), note = w.comments[0], next = WF[w.type][w.si + 1], mv = yourMove(w) && next && next.kind !== 'Done';
+    const s = st(w), f = flags(w).filter((x) => !x.startsWith('Past')), note = w.comments[0];
     return `<tr tabindex="0" data-open="${w.key}" ${drag ? `draggable="true" data-drag="${w.key}"` : ''} class="${yourMove(w) ? 'move' : ''}">
       <td class="num mute">${drag ? '<span class="grip" aria-hidden="true">⠿</span>' : ''}${w.pri || ''}</td><td class="wo">${w.id}${w.rev ? `<b class="u-hold">REV ${w.rev}</b>` : ''}</td>
       <td class="cust"><b>${e(w.cust)}</b><span>${e(w.site)}</span></td>
       <td><span class="pill" data-h="${s.holder}">${e(s.name)}</span>${hold(w) ? '<b class="u-hold">On hold</b>' : ''}</td>
       <td class="num">${daysCell(w)}</td>
-      <td><span class="tag">${w.type}</span></td><td><span class="av" aria-hidden="true">${ini(w.eng)}</span>${e(w.eng.split(' ')[0])}</td><td>${dueCell(w)}</td>
-      ${STAGES.map(([c]) => stageCell(w, c)).join('')}
-      <td>${mv ? `<button class="u-btn nextb" data-act="rownext" data-k="${w.key}" title="Move to ${e(next.name)}">${e(next.name)}</button>` : done(w) || !next || next.kind === 'Done' ? '' : `<span class="mute">${e(next.name)}</span>`}</td>
+      <td><span class="tag">${w.type}</span></td><td>${e(w.eng)}</td><td>${dueCell(w)}</td>
       <td class="note">${f.length ? `<b class="flag">${e(f[0])}.</b> ` : ''}${note ? e(note.text) : ''}</td></tr>`;
   }
   function work() {
-    const rows = list(), drag = plainOrder(), cols = 15;
-    const head = `<tr>${th('pri', '#', 'num')}${th('id', 'WO')}${th('cust', 'Customer and site')}${th('status', 'Status')}${th('days', 'In status', 'num')}${th('type', 'Type')}${th('eng', 'Engineer')}${th('due', 'Due')}${STAGES.map((x) => `<th class="stg">${x[1]}</th>`).join('')}<th>Next step</th><th>Latest note</th></tr>`;
+    const rows = list(), drag = plainOrder(), cols = 9;
+    const head = `<tr>${th('pri', '#', 'num')}${th('id', 'WO')}${th('cust', 'Customer and site')}${th('status', 'Status')}${th('days', 'In status', 'num')}${th('type', 'Type')}${th('eng', 'Engineer')}${th('due', 'Due')}<th>Latest note</th></tr>`;
     let body;
     if (S.scope === 'bill') {
       body = `<table class="u-table work"><thead><tr>${th('id', 'WO')}${th('cust', 'Customer and site')}${th('type', 'Type')}${th('status', 'Status')}${th('days', 'Days since', 'num')}<th>Deployed</th><th>Picked up</th><th class="num">Days out</th><th>Study length</th><th>Invoices</th><th>Billing comment</th></tr></thead><tbody>
@@ -161,33 +159,34 @@
       <span class="u-spacer"></span><span class="u-sub">${rows.length} work orders${drag ? ', drag a row to change priority' : ''}</span>
       <input id="q" class="u-search" data-q type="search" placeholder="Search work orders" value="${e(S.q)}" aria-label="Search work orders">
       <button class="u-btn" data-act="export">Export</button></div>
-      <div class="sheet u-scroll">${S.scope === 'bill' ? '' : `<p class="key"><b>Stage columns</b><span class="sc done">✓</span>Done<span class="sc now" data-h="Urban">Urban</span><span class="sc now" data-h="QC">QC</span><span class="sc now" data-h="Customer">Customer</span><span class="sc now" data-h="Field">Field</span>In progress, showing who has it<span class="sc todo"></span>Not started<span class="sc na"></span>Not part of this job</p>`}
-        ${body}${rows.length ? '' : '<p class="empty">No work orders match. Clear the search or filters.</p>'}</div>`;
+      <div class="sheet u-scroll">${body}${rows.length ? '' : '<p class="empty">No work orders match. Clear the search or filters.</p>'}</div>`;
   }
 
   /* ---------- WO Log: the register. One row per WO#, in the WO Log's column order; where a WO gets its number and date (A1) ---------- */
   const ini = (n) => n.split(' ').map((x) => x[0]).join('');
+  const toInvoice = (w) => st(w).holder === 'Billing' && !w.invoices.length;
   function logRows() {
     const q = S.q.trim().toLowerCase();
-    return wos.filter((w) => (S.sheet === 'ong') === (w.type === 'CM') && (!S.lstat || { Open: !done(w), 'Delivered, not closed': st(w).holder === 'Billing', 'Closed or cancelled': done(w) }[S.lstat])
+    return wos.filter((w) => (S.sheet === 'ong') === (w.type === 'CM') && (!S.lstat || { 'To invoice': toInvoice(w), Open: !done(w), Invoiced: w.invoices.length > 0, 'Closed or cancelled': done(w) }[S.lstat])
       && (!q || (label(w) + ' ' + w.type + ' ' + w.cust + ' ' + w.site + ' ' + w.eng + ' ' + w.invoices.map((x) => x.no).join(' ')).toLowerCase().includes(q)))
       .sort((a, b) => { const x = val[S.sort](a), y = val[S.sort](b); return (x < y ? -1 : x > y ? 1 : 0) * S.dir; });
   }
   function wolog() {
     const rows = logRows(), n = S.nw, ong = S.sheet === 'ong';
-    return `<div class="top"><h1>WO Log</h1>${seg([['one', 'One-timers'], ['ong', 'Ongoing']], S.sheet, 'sheet')}${sel('lstat', 'Open and closed', ['Open', 'Delivered, not closed', 'Closed or cancelled'])}
-      <span class="u-spacer"></span><span class="u-sub">${rows.length} work orders</span><input id="q" class="u-search" data-q type="search" placeholder="Search WO, customer, site, invoice" value="${e(S.q)}" aria-label="Search the WO Log"><button class="u-btn" data-act="export">Export</button></div>
+    return `<div class="top"><h1>WO Log</h1>${seg([['one', 'One-timers'], ['ong', 'Ongoing']], S.sheet, 'sheet')}${sel('lstat', 'All work orders', ['To invoice', 'Open', 'Invoiced', 'Closed or cancelled'])}
+      <span class="u-spacer"></span><span class="u-sub">${rows.length} work orders, ${rows.filter(toInvoice).length} to invoice</span><input id="q" class="u-search" data-q type="search" placeholder="Search WO, customer, site, invoice" value="${e(S.q)}" aria-label="Search the WO Log"><button class="u-btn" data-act="export">Export</button></div>
       <div class="sheet pad newwo"><strong>New work order</strong>
         ${ong ? '' : fld('Type', `<select data-nw="type">${opts(Object.keys(WF).filter((t) => t !== 'CM'), n.type)}</select>`)}
         ${fld('Customer', `<input data-nw="cust" list="custs" value="${e(n.cust)}">`, 'grow')}${fld('Site', `<input data-nw="site" list="sites" value="${e(n.site)}">`, 'grow')}
         ${fld('Assigned engineer', `<select data-nw="eng">${opts(ENG, n.eng)}</select>`)}${fld('Client due date', `<input data-nw="due" type="date" value="${e(n.due)}">`)}
         <button class="u-btn primary" data-act="create">Create work order</button>
         <span class="u-sub hint">${S.err ? `<span class="u-late">${e(S.err)}</span>` : `It gets the next ${ong ? 'EO' : 'E'} number and today's date as the date assigned.`}</span></div>
-      <div class="sheet u-scroll"><table class="u-table log"><thead><tr>${th('id', 'WO')}${th('created', 'Assigned')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}${th('eng', 'Eng')}<th>QC</th><th>Phase</th><th>Description</th>${th('due', 'Due')}<th class="num">Mon.</th><th>Deployed</th><th>Picked up</th><th>Report</th>${th('status', 'Status')}<th>Inv. sent</th><th>Invoice</th><th class="num">Hours</th></tr></thead><tbody>
+      <div class="sheet u-scroll"><p class="key"><span class="sw pink"></span>Delivered, not invoiced<span class="sw green"></span>Invoiced<span class="sw red"></span>Cancelled</p><table class="u-table log"><thead><tr>${th('id', 'WO')}${th('created', 'Assigned')}${th('cust', 'Customer')}<th>Site</th>${th('type', 'Type')}${th('eng', 'Eng')}<th>QC</th><th>Phase</th><th>Description</th>${th('due', 'Due')}<th class="num">Mon.</th><th>Deployed</th><th>Picked up</th><th>Report</th>${th('status', 'Status')}<th>Inv. sent</th><th>Invoice</th><th class="num">Hours</th></tr></thead><tbody>
         ${rows.map((w) => { const s = st(w), last = w.invoices[w.invoices.length - 1];
-          return `<tr tabindex="0" data-open="${w.key}" class="${done(w) ? 'shut' : ''}${S.fresh === w.key ? ' fresh' : ''}"><td class="wo">${w.id}${w.rev ? `<b class="u-hold">REV ${w.rev}</b>` : ''}</td><td>${fmt(w.created)}</td><td><b>${e(w.cust)}</b></td><td>${e(w.site)}</td><td>${w.type}</td><td>${ini(w.eng)}</td><td>${ini(w.qc)}</td><td>${w.phase.map((p) => (p === 'N/A' ? p : p[0])).join('/')}</td><td class="desc">${e(w.scope)}</td>
-            <td class="${late(w) ? 'u-late' : ''}">${fmt(w.due)}</td><td class="num">${w.monitors || ''}</td><td>${fmt(w.deploy)}</td><td>${fmt(w.pickup)}</td><td>${fmt(w.reportDate)}</td>
-            <td><span class="who">${dot(s.holder)}${e(s.name)}</span>${hold(w) ? '<b class="u-hold">On hold</b>' : ''}</td><td>${last ? fmt(last.date) : ''}</td><td>${w.invoices.map((x) => e(x.no)).join(', ')}</td><td class="num">${w.hours ? w.hours.toFixed(1) : ''}</td></tr>`; }).join('')}</tbody></table>
+          const pk = toInvoice(w) ? ' class="pink"' : '';
+          return `<tr tabindex="0" data-open="${w.key}" class="${s.name === 'Cancelled' ? 'cx' : w.invoices.length ? 'inv' : ''}${S.fresh === w.key ? ' fresh' : ''}"><td class="wo">${w.id}${w.rev ? `<b class="u-hold">REV ${w.rev}</b>` : ''}</td><td>${fmt(w.created)}</td><td><b>${e(w.cust)}</b></td><td>${e(w.site)}</td><td>${w.type}</td><td>${ini(w.eng)}</td><td>${ini(w.qc)}</td><td>${w.phase.map((p) => (p === 'N/A' ? p : p[0])).join('/')}</td><td class="desc">${e(w.scope)}</td>
+            <td class="${late(w) ? 'u-late' : ''}">${fmt(w.due)}</td><td class="num">${w.monitors || ''}</td><td>${fmt(w.deploy)}</td><td>${fmt(w.pickup)}</td><td${pk}>${fmt(w.reportDate)}</td>
+            <td${pk}><span class="who">${dot(s.holder)}${e(s.name)}</span>${hold(w) ? '<b class="u-hold">On hold</b>' : ''}</td><td${pk}>${last ? fmt(last.date) : ''}</td><td${pk}>${toInvoice(w) ? 'Not invoiced' : w.invoices.map((x) => e(x.no)).join(', ')}</td><td class="num">${w.hours ? w.hours.toFixed(1) : ''}</td></tr>`; }).join('')}</tbody></table>
         ${rows.length ? '' : '<p class="empty">No work orders match. Clear the search or the filter.</p>'}</div>
       <datalist id="custs">${CUST.map((c) => `<option value="${e(c[0])}">`).join('')}</datalist><datalist id="sites">${SITES.map((x) => `<option value="${e(x)}">`).join('')}</datalist>`;
   }
@@ -227,8 +226,7 @@
         ${kids.length || (s.stage === 'D' && !w.rev && s.name !== 'Cancelled') ? `<h2>Revisions</h2><ul class="kids">${kids.map((k) => `<li><button class="link" data-open="${k.key}">REV ${k.rev}</button><span class="who">${dot(st(k).holder)}${e(st(k).name)}</span></li>`).join('')}</ul>${s.stage === 'D' && !w.rev && s.name !== 'Cancelled' ? '<button class="u-btn" data-act="rev">Add revision</button>' : ''}` : ''}`,
       workflow: () => `
         ${done(w) ? '<div class="mv"><button class="u-btn" data-act="reopen">Reopen work order</button></div>' : `<div class="mv"><label class="f"><span>Date of the change</span><input type="date" data-set="moveDate" value="${S.moveDate}" max="${iso(TODAY)}"></label>
-          ${canNext ? `<button class="u-btn primary" data-act="next">Move to ${e(next.name)}</button>` : next && next.name === 'Closed' ? '<span class="mute">Billing closes the work order</span>' : ''}
-          <select data-act="jump" aria-label="Move to another status"><option value="">Another status</option>${flow.map((x, i) => (i === w.si || x.kind === 'Done' ? '' : `<option value="${i}">${e(x.name)}</option>`)).join('')}</select>
+          <select data-act="jump" aria-label="Change status to"><option value="">Change status to</option>${flow.map((x, i) => (i === w.si || x.kind === 'Done' ? '' : `<option value="${i}">${e(x.name)}</option>`)).join('')}</select>
           <span class="u-spacer"></span>${h ? '' : `<select data-act="hold" aria-label="Put on hold"><option value="">Put on hold</option>${opts(HOLD_REASONS)}</select>`}<button class="u-btn" data-act="cancel">Cancel work order</button></div>`}
         ${pend ? `<p class="banner warn">Moving to ${e(pend.name)} skips ${S.pending - w.si - 1} ${S.pending - w.si - 1 === 1 ? 'status' : 'statuses'}. Skipped statuses get no date. <button class="u-btn primary" data-act="confirm">Move anyway</button><button class="u-btn" data-act="keep">Stay on ${e(s.name)}</button></p>` : ''}`,
       milestones: () => { const rows = flow.map((x, i) => ({ name: MILE[w.type][i], from: x.name, h: x.holder, d: first(i) && first(i).date, now: i === w.si, n: visits(i) })).filter((m) => m.name);
@@ -247,7 +245,7 @@
     return `<p class="crumb"><button data-close>${back}</button><span>${label(w)}</span></p>
     <header class="sheet rec"><div class="who-what"><p class="phid">${label(w)} <span>${w.type}</span>${w.parent ? ` <button class="link" data-open="${w.parent}">Revision of ${w.parent}</button>` : ''}</p><h1>${e(w.cust) || 'New work order'}</h1><p class="mute">${e(w.site)}</p></div>
       <div><p class="big">${dot(s.holder)}<strong>${e(s.name)}</strong></p><p class="mute">${done(w) ? `Since ${fmt(w.history[w.history.length - 1].date)}` : `With ${e(who(w))} for ${daysIn(w)} ${daysIn(w) === 1 ? 'day' : 'days'}`}</p></div>
-      ${canNext && S.wtab !== 'milestones' ? `<button class="u-btn primary" data-act="next">Move to ${e(next.name)}</button>` : ''}
+      ${done(w) ? '' : `<label class="f stpick"><span>Change status</span><select data-act="setstatus" aria-label="Change status">${flow.map((x, i) => (x.kind === 'Done' ? '' : `<option value="${i}"${i === w.si ? ' selected' : ''}>${e(x.name)}</option>`)).join('')}</select></label>`}
       ${h ? `<p class="banner">On hold since ${fmt(h.start)}: ${e(h.reason)} <button class="u-btn" data-act="unhold">Take off hold</button></p>` : ''}</header>
     <div class="rec-body"><nav class="vtabs" aria-label="Work order sections">${tabs.map(([k, l, c]) => `<button data-tab="wtab:${k}" aria-current="${S.wtab === k ? 'page' : 'false'}">${l}${c ? `<span>${c}</span>` : ''}</button>`).join('')}</nav>
       <section class="sheet pad panel">${S.wtab === 'milestones' ? panel.milestones() : S.wtab === 'changelog' ? panel.changelog() : `<div class="dcols"><div>${panel.details()}${panel.billing()}${panel.hours()}</div><aside>${panel.comments()}</aside></div>`}</section></div>
@@ -261,35 +259,62 @@
     if (done(w)) w.pri = 0; renumber();
   }
 
-  /* ---------- Time (C1 to C8, N5, N21) ---------- */
-  const DAYS = ['Mon, Nov 23', 'Tue, Nov 24', 'Wed, Nov 25', 'Thu, Nov 26', 'Fri, Nov 27'];
+  /* ---------- Time (C1 to C8, N5, N21): pick the kind of time first; each kind has its own required fields; any week can be opened ---------- */
   const mineOpen = wos.filter((w) => w.eng === ME && !done(w));
-  const T = { status: 'Draft', entries: [
-    { d: 0, wo: mineOpen[0].key, task: 'Modeling', sub: 'Base Model', h: 4.5, note: '' }, { d: 0, wo: mineOpen[1].key, task: 'Report', sub: 'Draft', h: 2.5, note: '' }, { d: 0, wo: '', task: 'Queue Meeting', h: 0.5, note: 'Weekly queue call' },
-    { d: 1, wo: mineOpen[0].key, task: 'Modeling', sub: 'Equipment Model', h: 5, note: '' }, { d: 1, wo: mineOpen[2].key, task: 'Customer Communication', sub: 'Information Request', h: 1.25, note: 'Second request for the equipment list', oos: false }, { d: 1, wo: '', task: 'Training Received', h: 1, note: 'SoundPLAN session' },
-    { d: 2, wo: mineOpen[1].key, task: 'Report', sub: 'Post QC Edits', h: 2, note: 'Extra receptor the customer asked for', oos: true },
-    { d: 3, off: 'Holiday' } ] };
+  const OFF_TYPES = ['PTO', 'Holiday', 'Sick', 'Remote'];
+  const KINDS = [['wo', 'Work order'], ['gen', 'General'], ['off', 'Time off']];
+  const weekStart = (off) => new Date(2026, 10, 23 + 7 * off);
+  const dayName = (d) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const T = { entries: [], status: {} };
+  (function seed() {
+    const tr = rng(77), wk = [['Modeling', 'Base Model'], ['Modeling', 'Equipment Model'], ['Report', 'Draft'], ['Report', 'Post QC Edits'], ['Project Administrative', 'Information Review'], ['Customer Communication', 'Information Request']];
+    for (let off = -5; off <= 0; off++) {
+      T.status[off] = off === 0 ? 'Draft' : off === -1 ? 'Submitted' : 'Approved';
+      for (let d = 0; d < 5; d++) {
+        const date = new Date(+weekStart(off) + d * DAY);
+        if (off === 0 && d === 3) { T.entries.push({ date, kind: 'off', off: 'Holiday', h: 0, note: 'Thanksgiving' }); continue; }
+        if (off === 0 && d > 2) continue;
+        if (off === -3 && d === 4) { T.entries.push({ date, kind: 'off', off: 'PTO', h: 0, note: '' }); continue; }
+        const a = mineOpen[Math.floor(tr() * 3)], b = mineOpen[Math.floor(tr() * 3)], p = wk[Math.floor(tr() * wk.length)], q = wk[Math.floor(tr() * wk.length)];
+        T.entries.push({ date, kind: 'wo', wo: a.key, task: p[0], sub: p[1], h: 3 + Math.round(tr() * 8) / 4, oos: false, note: '' });
+        if (!(off === 0 && d === 2)) T.entries.push({ date, kind: 'wo', wo: b.key, task: q[0], sub: q[1], h: 1.5 + Math.round(tr() * 6) / 4, oos: tr() < 0.1, note: '' });
+        if (d === 0) T.entries.push({ date, kind: 'gen', task: 'Queue Meeting', h: 0.5, note: 'Weekly queue call' });
+        if (tr() < 0.25) T.entries.push({ date, kind: 'gen', task: 'Training Received', h: 1, note: 'SoundPLAN session' });
+      }
+    }
+  })();
   const team = [{ n: 'Dana Whitlow', h: 38.5, s: 'Submitted' }, { n: 'Marco Ruiz', h: 41, s: 'Submitted' }, { n: 'Priya Nair', h: 22, s: 'Draft' }, { n: 'Tom Becker', h: 0, s: 'Nothing logged' }, { n: 'Lena Ortiz', h: 36, s: 'Submitted' }, { n: 'Grant Hale', h: 40, s: 'Approved' }];
+  /* what each kind of time needs before it can be added */
+  const NEED = { wo: [['wo', 'work order'], ['task', 'task'], ['sub', 'sub-task'], ['h', 'hours']], gen: [['task', 'task'], ['h', 'hours'], ['note', 'comment']], off: [['off', 'type of time off']] };
   function time() {
     const mgr = S.role === 'Manager', tabs = mgr ? seg([['week', 'My week'], ['approvals', 'Approvals']], S.ttab, 'ttab') : '';
     if (mgr && S.ttab === 'approvals') return `<div class="top"><h1>Time</h1>${tabs}<span class="u-sub">Week of Nov 23</span></div><div class="sheet pad u-scroll"><table class="u-table"><thead><tr><th>Person</th><th class="num">Hours</th><th>Week</th><th></th></tr></thead><tbody>
       ${team.map((p, i) => `<tr><td>${p.n}</td><td class="num">${p.h.toFixed(2)}</td><td class="${p.s === 'Nothing logged' ? 'u-late' : ''}">${p.s}${p.why ? `: ${e(p.why)}` : ''}</td><td class="num">${p.s === 'Submitted' ? `<button class="u-btn" data-act="reject" data-i="${i}">Reject</button> <button class="u-btn primary" data-act="approve" data-i="${i}">Approve week</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
-    const total = T.entries.reduce((t, x) => t + (x.h || 0), 0), f = S.te, w = byKey(f.wo), locked = T.status !== 'Draft';
-    const tasks = w ? Object.keys(TASKS) : GENERAL, subs = w && TASKS[f.task] ? TASKS[f.task] : [];
-    const days = DAYS.map((name, d) => { const l = T.entries.filter((x) => x.d === d), sum = l.reduce((t, x) => t + (x.h || 0), 0);
-      return `<section class="day"><h3>${name}${d === 2 ? ' <span class="mute">today</span>' : ''}<em>${l.some((x) => x.off) ? '' : sum.toFixed(2)}</em></h3>${l.length ? `<table class="u-table"><tbody>${l.map((x) => { const j = byKey(x.wo);
-        return x.off ? `<tr><td colspan="5">Time off: ${x.off}, all day</td></tr>` : `<tr><td class="wo">${j ? `<button class="link" data-open="${j.key}">${label(j)}</button>` : 'General'}</td><td>${j ? e(j.cust) : ''}</td><td>${e(x.task)}${x.sub ? `<span class="mute">, ${e(x.sub)}</span>` : ''}${x.oos ? '<b class="u-hold">Out of scope</b>' : ''}</td><td class="mute">${e(x.note)}</td><td class="num">${x.h.toFixed(2)}</td></tr>`; }).join('')}</tbody></table>` : '<p class="mute none">Nothing logged</p>'}</section>`; }).join('');
-    return `<div class="top"><h1>Time</h1>${tabs}<span class="u-sub">Week of Nov 23</span><span class="pace" title="${total} of 40 hours"><b style="width:${Math.min(100, total / 0.4)}%"></b></span><span>${total.toFixed(2)} of 40 hours</span>
-      <span class="u-spacer"></span><span class="u-sub">${T.status}</span>${locked ? '' : '<button class="u-btn primary" data-act="submit">Submit week</button>'}</div>
-      ${locked ? '' : `<div class="sheet pad entry">
-        ${fld('Date', `<select data-te="d">${DAYS.map((n, i) => `<option value="${i}"${+f.d === i ? ' selected' : ''}>${n}</option>`).join('')}</select>`)}
-        ${fld('Work order or General', `<select data-te="wo"><option value="">General</option>${wos.filter((x) => !done(x)).map((x) => `<option value="${x.key}"${f.wo === x.key ? ' selected' : ''}>${label(x)} ${e(x.cust)}, ${e(x.site)}</option>`).join('')}</select>`, 'grow')}
-        ${fld('Task', `<select data-te="task">${opts(tasks, f.task, 'Pick a task')}</select>`)}
-        ${w ? fld('Sub-task', `<select data-te="sub">${opts(subs, f.sub, 'Pick a sub-task')}</select>`) : ''}
-        ${fld('Hours', `<span class="hrs"><input data-te="h" type="number" min="0.25" step="0.25" value="${f.h}">${[0.5, 1, 2, 4].map((n) => `<button class="u-btn" data-act="quick" data-n="${n}">${n}</button>`).join('')}</span>`)}
-        ${fld(w ? 'Comment' : 'Comment (required on General time)', `<input data-te="note" value="${e(f.note)}">`, 'grow')}
-        ${w ? `<label class="chk"><input type="checkbox" data-te="oos" ${f.oos ? 'checked' : ''}> Out of scope</label>` : ''}
-        <span class="btns"><button class="u-btn" data-act="copy">Copy last entry</button><button class="u-btn primary" data-act="addentry">Add entry</button></span>
+    const off = +S.week || 0, ws = weekStart(off), dates = [0, 1, 2, 3, 4].map((d) => new Date(+ws + d * DAY)), f = S.te, w = byKey(f.wo);
+    const inWeek = T.entries.filter((x) => x.date >= ws && x.date < new Date(+ws + 7 * DAY));
+    const total = inWeek.reduce((t, x) => t + (x.h || 0), 0), avail = 40 - 8 * inWeek.filter((x) => x.kind === 'off' && x.off !== 'Remote').length;
+    const status = T.status[off] || 'Draft', locked = status !== 'Draft';
+    if (!dates.some((d) => iso(d) === f.date)) f.date = iso(dates.find((d) => iso(d) === iso(TODAY)) || dates[0]);
+    const tasks = f.kind === 'wo' ? Object.keys(TASKS) : GENERAL, subs = TASKS[f.task] || [];
+    const req = (key, label2) => `${label2} <i class="req">required</i>`, bad = (key) => (S.miss.includes(key) ? ' miss' : '');
+    const days = dates.map((date) => { const l = inWeek.filter((x) => iso(x.date) === iso(date)), sum = l.reduce((t, x) => t + (x.h || 0), 0);
+      return `<section class="day"><h3>${dayName(date)}${iso(date) === iso(TODAY) ? ' <span class="mute">today</span>' : ''}<em>${l.length && l.every((x) => x.kind === 'off') ? '' : sum.toFixed(2)}</em></h3>${l.length ? `<table class="u-table"><tbody>${l.map((x) => { const j = byKey(x.wo);
+        return x.kind === 'off' ? `<tr class="offrow"><td><span class="tag">Time off</span></td><td colspan="3">${e(x.off)}, all day${x.note ? `<span class="mute">, ${e(x.note)}</span>` : ''}</td><td class="num mute">no hours</td></tr>`
+          : `<tr><td class="wo">${j ? `<button class="link" data-open="${j.key}">${label(j)}</button>` : '<span class="tag">General</span>'}</td><td>${j ? e(j.cust) : ''}</td><td>${e(x.task)}${x.sub ? `<span class="mute">, ${e(x.sub)}</span>` : ''}${x.oos ? '<b class="u-hold">Out of scope</b>' : ''}</td><td class="mute">${e(x.note)}</td><td class="num">${x.h.toFixed(2)}</td></tr>`; }).join('')}</tbody></table>` : '<p class="mute none">Nothing logged</p>'}</section>`; }).join('');
+    return `<div class="top"><h1>Time</h1>${tabs}
+        <span class="wknav"><button class="u-btn" data-act="week" data-n="-1" ${off <= -5 ? 'disabled' : ''}>Previous week</button><strong>Week of ${fmt(ws)}</strong><button class="u-btn" data-act="week" data-n="1" ${off >= 1 ? 'disabled' : ''}>Next week</button>${off ? '<button class="link" data-act="week" data-n="0">Back to this week</button>' : ''}</span>
+        <span class="pace" title="${total} of ${avail} hours"><b style="width:${Math.min(100, (total / Math.max(avail, 1)) * 100)}%"></b></span><span>${total.toFixed(2)} of ${avail} hours</span>
+        <span class="u-spacer"></span><span class="u-sub">${status}</span>${locked ? '' : '<button class="u-btn primary" data-act="submit">Submit week</button>'}</div>
+      ${locked ? `<p class="banner">This week is ${status.toLowerCase()}, so its entries are locked.</p>` : `<div class="sheet pad entry">
+        <div class="u-seg kind">${KINDS.map(([k, l]) => `<button data-act="kind" data-k="${k}" aria-pressed="${f.kind === k}">${l}</button>`).join('')}</div>
+        ${fld(req('date', 'Date'), `<select data-te="date">${dates.map((d) => `<option value="${iso(d)}"${f.date === iso(d) ? ' selected' : ''}>${dayName(d)}</option>`).join('')}</select>`)}
+        ${f.kind === 'wo' ? fld(req('wo', 'Work order'), `<select data-te="wo"><option value="">Pick a work order</option>${wos.filter((x) => !done(x)).map((x) => `<option value="${x.key}"${f.wo === x.key ? ' selected' : ''}>${label(x)} ${e(x.cust)}, ${e(x.site)}</option>`).join('')}</select>`, 'grow' + bad('wo')) : ''}
+        ${f.kind !== 'off' ? fld(req('task', 'Task'), `<select data-te="task">${opts(tasks, f.task, 'Pick a task')}</select>`, bad('task')) : fld(req('off', 'Type of time off'), `<select data-te="off">${opts(OFF_TYPES, f.off, 'Pick a type')}</select>`, bad('off'))}
+        ${f.kind === 'wo' ? fld(req('sub', 'Sub-task'), `<select data-te="sub">${opts(subs, f.sub, f.task ? 'Pick a sub-task' : 'Pick a task first')}</select>`, bad('sub')) : ''}
+        ${f.kind !== 'off' ? fld(req('h', 'Hours'), `<span class="hrs"><input data-te="h" type="number" min="0.25" step="0.25" value="${f.h}">${[0.5, 1, 2, 4].map((n) => `<button class="u-btn" data-act="quick" data-n="${n}">${n}</button>`).join('')}</span>`, bad('h')) : '<p class="f"><span>Hours</span><output>All day, no hours</output></p>'}
+        ${fld(f.kind === 'gen' ? req('note', 'Comment') : 'Comment', `<input data-te="note" value="${e(f.note)}">`, 'grow' + bad('note'))}
+        ${f.kind === 'wo' ? `<label class="chk"><input type="checkbox" data-te="oos" ${f.oos ? 'checked' : ''}> Out of scope</label>` : ''}
+        <span class="btns">${f.kind === 'off' ? '' : '<button class="u-btn" data-act="copy">Copy last entry</button>'}<button class="u-btn primary" data-act="addentry">Add ${f.kind === 'off' ? 'time off' : 'entry'}</button></span>
         ${S.err ? `<p class="u-late err">${e(S.err)}</p>` : ''}</div>`}
       <div class="sheet pad">${days}</div>`;
   }
@@ -352,26 +377,30 @@
         if (type === 'NMP' || type === 'NIA') { k.ambNeeded = false; k.infoDate = null; } if ('AMB CM CR'.includes(type)) k.monitors = 0; if (type === 'AMB' || type === 'CR') k.studyLen = '';
         wos.push(k); renumber(); S.fresh = id; S.nw = { ...n, cust: '', site: '', due: '' }; Object.assign(S, { sort: 'id', dir: -1, lstat: '', q: '' }); } }
     else if (d.act === 'export') { const csv = ['WO,Type,Customer,Site,Status,Holder,Days in status,Due,Engineer'].concat((S.page === 'log' ? logRows() : list()).map((x) => [label(x), x.type, x.cust, x.site, st(x).name, st(x).holder, daysIn(x), iso(x.due), x.eng].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))).join('\n'); const l = document.createElement('a'); l.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); l.download = 'work-orders.csv'; l.click(); }
-    else if (d.act === 'submit') T.status = 'Submitted';
+    else if (d.act === 'submit') T.status[+S.week || 0] = 'Submitted';
     else if (d.act === 'approve') team[+d.i].s = 'Approved';
     else if (d.act === 'reject') { const why = prompt('Reason for rejecting this week'); if (why) { team[+d.i].s = 'Rejected'; team[+d.i].why = why; } }
+    else if (d.act === 'week') { S.week = +d.n === 0 ? 0 : Math.max(-5, Math.min(1, (+S.week || 0) + +d.n)); S.err = ''; S.miss = []; }
+    else if (d.act === 'kind') { Object.assign(S.te, { kind: d.k, wo: '', task: '', sub: '', off: '', oos: false }); S.err = ''; S.miss = []; }
     else if (d.act === 'quick') S.te.h = +d.n;
-    else if (d.act === 'copy') { const l = T.entries.filter((x) => !x.off).pop(); Object.assign(S.te, { wo: l.wo, task: l.task, sub: l.sub || '', h: l.h, oos: !!l.oos, note: l.note }); }
-    else if (d.act === 'addentry') { const f = S.te;
-      S.err = !f.task ? 'Pick a task.' : f.wo && !f.sub ? 'Pick a sub-task. It is required on work order time.' : !f.wo && !f.note.trim() ? 'Add a comment. It is required on General time.' : !(f.h > 0) ? 'Hours must be more than 0.' : '';
-      if (!S.err) { T.entries.push({ d: +f.d, wo: f.wo, task: f.task, sub: f.sub, h: Math.round(f.h * 4) / 4, oos: f.oos, note: f.note }); S.te = { ...f, task: '', sub: '', note: '', oos: false, h: 1 }; } }
+    else if (d.act === 'copy') { const l = T.entries.filter((x) => x.kind === S.te.kind).pop(); if (l) Object.assign(S.te, { wo: l.wo || '', task: l.task, sub: l.sub || '', h: l.h, oos: !!l.oos, note: l.note || '' }); }
+    else if (d.act === 'addentry') { const f = S.te, need = NEED[f.kind].filter(([k]) => (k === 'h' ? !(f.h > 0) : !String(f[k] || '').trim()));
+      S.miss = need.map((x) => x[0]); S.err = need.length ? 'Still needed: ' + need.map((x) => x[1]).join(', ') + '.' : '';
+      if (!need.length) { T.entries.push(f.kind === 'off' ? { date: parse(f.date), kind: 'off', off: f.off, h: 0, note: f.note } : { date: parse(f.date), kind: f.kind, wo: f.kind === 'wo' ? f.wo : '', task: f.task, sub: f.kind === 'wo' ? f.sub : '', h: Math.round(f.h * 4) / 4, oos: f.kind === 'wo' && f.oos, note: f.note });
+        S.te = { ...f, task: '', sub: '', note: '', oos: false, off: '', h: 1 }; } }
     render();
   });
   document.addEventListener('change', (ev) => {
     const t = ev.target, d = t.dataset, w = byKey(S.sel);
     if (d.set) { S[d.set] = t.value; if (d.set === 'role') { if (!nav().some((n) => n[0] === S.page)) S.page = 'work'; if (!scopes().some((n) => n[0] === S.scope)) S.scope = 'mine'; if (S.role === 'Billing') S.scope = 'bill'; } }
+    else if (d.act === 'setstatus') move(w, +t.value);
     else if (d.act === 'jump' && t.value !== '') { const i = +t.value; if (i > w.si + 1) S.pending = i; else move(w, i); }
     else if (d.act === 'hold' && t.value) { w.holds.push({ reason: t.value, start: TODAY, end: null }); edit(w, 'On hold', '', t.value); }
     else if (d.act === 'info') { edit(w, FLABEL.infoDate, w.infoDate, t.checked ? TODAY : null); w.infoDate = t.checked ? TODAY : null; }
     else if (d.phase) { const was = w.phase; w.phase = t.checked ? w.phase.concat(d.phase) : w.phase.filter((p) => p !== d.phase); edit(w, FLABEL.phase, was, w.phase); }
     else if (d.f) { const v = t.type === 'date' ? parse(t.value) : t.type === 'number' ? +t.value : d.f === 'ambNeeded' ? t.value === 'Yes' : t.value; edit(w, FLABEL[d.f] || d.f, w[d.f], v); w[d.f] = v; }
     else if (d.nw) S.nw[d.nw] = t.value;
-    else if (d.te) { S.te[d.te] = t.type === 'checkbox' ? t.checked : d.te === 'h' ? +t.value : t.value; if (d.te === 'wo') { S.te.task = ''; S.te.sub = ''; } if (d.te === 'task') S.te.sub = ''; S.err = ''; }
+    else if (d.te) { S.te[d.te] = t.type === 'checkbox' ? t.checked : d.te === 'h' ? +t.value : t.value; if (d.te === 'task') S.te.sub = ''; S.miss = S.miss.filter((k) => k !== d.te); if (!S.miss.length) S.err = ''; }
     else return;
     if (/^(INPUT|TEXTAREA)$/.test(t.tagName) && t.type !== 'checkbox') return;
     render();
