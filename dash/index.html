@@ -14,9 +14,10 @@
   <select id="persona" aria-label="Persona"></select>
   <select id="tier" aria-label="Tier"></select>
   <input id="q" type="search" placeholder="Search all charts" aria-label="Search all charts">
-  <button id="pickedOnly" type="button" aria-pressed="false">Picked only</button>
+  <button id="pickedOnly" type="button" aria-pressed="false">Picked or noted</button>
   <span class="spacer"></span>
   <span id="copied" class="copied" aria-live="polite"></span>
+  <button id="copyNotes" type="button">Copy notes</button>
   <button id="copy" type="button">Copy picks</button>
 </div>
 <main>
@@ -53,6 +54,11 @@
   const KEY = 'dash-catalog-picks';
   let picks = new Set();
   try { picks = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { picks = new Set(); }
+  /* meeting notes, one per chart code */
+  const NKEY = 'dash-catalog-notes';
+  let notes = {};
+  try { notes = JSON.parse(localStorage.getItem(NKEY) || '{}') || {}; } catch (e) { notes = {}; }
+  const saveNotes = () => { try { localStorage.setItem(NKEY, JSON.stringify(notes)); } catch (e) { /* storage unavailable */ } };
   const savePicks = () => { try { localStorage.setItem(KEY, JSON.stringify([...picks])); } catch (e) { /* storage unavailable */ } };
 
   /* state from the hash */
@@ -87,6 +93,12 @@
     if (!ids.length) { $('copied').textContent = 'Nothing picked yet'; return; }
     copyText(ids.join(', ')).then((ok) => { $('copied').textContent = ok ? `Copied ${ids.length} ${ids.length === 1 ? 'pick' : 'picks'}` : `${ids.length} picked: ${ids.join(', ')}`; });
   });
+  $('copyNotes').addEventListener('click', () => {
+    const rows = CAT.filter((r) => (notes[r.id] || '').trim());
+    if (!rows.length) { $('copied').textContent = 'No notes yet'; return; }
+    const text = rows.map((r) => `${r.id} ${r.element}${picks.has(r.id) ? ' (picked)' : ''}: ${notes[r.id].trim()}`).join('\n');
+    copyText(text).then((ok) => { $('copied').textContent = ok ? `Copied notes on ${rows.length} ${rows.length === 1 ? 'chart' : 'charts'}` : 'Could not copy'; });
+  });
   const updatePickCount = () => { const n = picks.size; if (!$('copied').textContent.startsWith('Copied')) $('copied').textContent = n ? `${n} picked` : ''; };
 
   /* cards */
@@ -109,6 +121,11 @@
     cb.addEventListener('change', () => { if (cb.checked) picks.add(r.id); else picks.delete(r.id); c.classList.toggle('picked', cb.checked); savePicks(); $('copied').textContent = ''; updatePickCount(); count(); });
     lab.appendChild(cb); lab.appendChild(document.createTextNode('Pick')); foot.appendChild(lab);
     c.appendChild(foot);
+    const nt = el('textarea', 'note'); nt.rows = 1; nt.placeholder = `Notes on ${r.id}`; nt.setAttribute('aria-label', `Notes on ${r.id}`); nt.value = notes[r.id] || '';
+    const grow = () => { nt.style.height = 'auto'; nt.style.height = Math.max(nt.scrollHeight, 30) + 'px'; };
+    nt.addEventListener('input', () => { if (nt.value.trim()) notes[r.id] = nt.value; else delete notes[r.id]; c.classList.toggle('noted', !!nt.value.trim()); saveNotes(); grow(); });
+    c.classList.toggle('noted', !!(notes[r.id] || '').trim());
+    c.appendChild(nt); setTimeout(grow, 0);
     const det = el('details'); det.appendChild(el('summary', null, "How it's calculated"));
     const dl = el('dl');
     [['Form', r.form], ['Calculation', r.calc], ['Data', r.data], ['At launch', r.launch], ['Per person', r.perPerson], ['Notes', r.notes], ['Source', r.source], ['Persona', r.persona], ['Tier', r.tier]].forEach(([k, v]) => { if (!v) return; dl.appendChild(el('dt', null, k)); dl.appendChild(el('dd', null, v)); });
@@ -126,14 +143,14 @@
     return CAT.filter((r) => (global || r.page === S.page)
       && (!S.persona || String(r.persona).includes(S.persona))
       && (!S.tier || r.tier === S.tier)
-      && (!S.picked || picks.has(r.id))
+      && (!S.picked || picks.has(r.id) || (notes[r.id] || '').trim())
       && (!q || [r.id, r.element, r.question, r.form, r.calc, r.page, r.decision].join(' ').toLowerCase().includes(q)));
   }
   function count() { const rows = visible(); $('count').textContent = `${rows.length} ${rows.length === 1 ? 'chart' : 'charts'}, ${rows.filter((r) => picks.has(r.id)).length} picked`; }
   function render() {
     const rows = visible(), global = !!S.q || S.picked, box = $('cards');
     box.replaceChildren();
-    if (global) { $('title').textContent = S.picked && !S.q ? 'Picked charts' : 'Search results'; $('sub').textContent = S.q ? `Matching "${S.q}" across all pages` : 'Across all pages'; }
+    if (global) { $('title').textContent = S.picked && !S.q ? 'Picked and noted charts' : 'Search results'; $('sub').textContent = S.q ? `Matching "${S.q}" across all pages` : 'Across all pages'; }
     else { $('title').textContent = S.page; $('sub').textContent = info(S.page).question || ''; }
     const results = [];
     rows.forEach((r) => { const { c, body } = card(r, global); box.appendChild(c); results.push({ r, body, res: draw(r, body, c) }); });
